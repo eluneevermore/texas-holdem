@@ -1,12 +1,12 @@
+import { useMemo } from 'react';
 import { useGameStore } from '../../stores/gameStore';
 import { useRoomStore } from '../../stores/roomStore';
 import { useAuthStore } from '../../stores/authStore';
-import type { GamePlayerPublicState } from '@poker/shared';
+import type { GamePlayerPublicState, Card } from '@poker/shared';
 import { PlayerState } from '@poker/shared';
 import PlayerSeat from './PlayerSeat';
 import CommunityCards from './CommunityCards';
 import ActionPanel from './ActionPanel';
-import HandResultOverlay from './HandResultOverlay';
 import BuyInButton from '../common/BuyInButton';
 
 const SUIT_SYMBOLS: Record<string, string> = {
@@ -30,6 +30,28 @@ export default function GameTable() {
   const meInRoom = roomPlayers.find((p) => p.playerId === userId);
   const isObserver = !meInHand || meInRoom?.playerState === PlayerState.OBSERVER;
   const isMyTurn = gs.activePlayerId === userId;
+
+  const winMap = useMemo(() => {
+    const m = new Map<string, { amount: number; handRank?: string }>();
+    if (!gs.winners) return m;
+    for (const w of gs.winners) {
+      const prev = m.get(w.playerId);
+      m.set(w.playerId, {
+        amount: (prev?.amount ?? 0) + w.amount,
+        handRank: w.handRank ?? prev?.handRank,
+      });
+    }
+    return m;
+  }, [gs.winners]);
+
+  const showdownMap = useMemo(() => {
+    const m = new Map<string, { cards: Card[]; handRank: string }>();
+    if (!gs.showdown) return m;
+    for (const s of gs.showdown) {
+      if (!s.mucked) m.set(s.playerId, { cards: s.holeCards, handRank: s.handRank });
+    }
+    return m;
+  }, [gs.showdown]);
 
   return (
     <div style={{
@@ -68,6 +90,9 @@ export default function GameTable() {
           const top = `${50 + ry * Math.sin(angle)}%`;
           const left = `${50 + rx * Math.cos(angle)}%`;
 
+          const win = winMap.get(p.playerId);
+          const sd = showdownMap.get(p.playerId);
+
           return (
             <div key={p.playerId} style={{
               position: 'absolute', top, left,
@@ -77,6 +102,10 @@ export default function GameTable() {
                 player={p}
                 timerSeconds={p.isTurn ? timerSeconds : undefined}
                 isCurrentUser={p.playerId === userId}
+                winAmount={win?.amount}
+                winHandRank={win?.handRank}
+                showdownCards={sd?.cards}
+                showdownHandRank={sd?.handRank}
               />
             </div>
           );
@@ -117,7 +146,6 @@ export default function GameTable() {
         )}
       </div>
 
-      <HandResultOverlay />
     </div>
   );
 }

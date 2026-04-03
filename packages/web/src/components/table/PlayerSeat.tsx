@@ -1,12 +1,24 @@
 import { useState, useEffect, useRef } from 'react';
-import type { GamePlayerPublicState } from '@poker/shared';
+import type { GamePlayerPublicState, Card } from '@poker/shared';
 import { HandState } from '@poker/shared';
 
 interface Props {
   player: GamePlayerPublicState;
   timerSeconds?: number | null;
   isCurrentUser: boolean;
+  winAmount?: number | null;
+  winHandRank?: string | null;
+  showdownCards?: Card[] | null;
+  showdownHandRank?: string | null;
 }
+
+const SUIT_SYMBOLS: Record<string, string> = {
+  spades: '\u2660', hearts: '\u2665', diamonds: '\u2666', clubs: '\u2663',
+};
+
+const SUIT_COLORS: Record<string, string> = {
+  spades: '#e5e7eb', hearts: '#ef4444', diamonds: '#3b82f6', clubs: '#22c55e',
+};
 
 const ACTION_LABELS: Record<string, string> = {
   FOLD: 'Fold',
@@ -24,9 +36,13 @@ const ACTION_COLORS: Record<string, string> = {
   ALL_IN: '#dc2626',
 };
 
-export default function PlayerSeat({ player, timerSeconds, isCurrentUser }: Props) {
+export default function PlayerSeat({
+  player, timerSeconds, isCurrentUser,
+  winAmount, winHandRank, showdownCards, showdownHandRank,
+}: Props) {
   const isFolded = player.handState === HandState.FOLDED;
   const isAllIn = player.handState === HandState.ALL_IN;
+  const isWinner = winAmount != null && winAmount > 0;
 
   // Action bubble state — shows briefly then fades out
   const [bubble, setBubble] = useState<{ text: string; color: string } | null>(null);
@@ -64,13 +80,13 @@ export default function PlayerSeat({ player, timerSeconds, isCurrentUser }: Prop
       padding: '10px 14px', borderRadius: '14px', minWidth: '120px',
       background: player.isTurn
         ? 'linear-gradient(135deg, #1e3a5f 0%, #1a2e4a 100%)'
-        : '#1e293b',
+        : isWinner ? 'linear-gradient(135deg, #422006 0%, #1e293b 100%)' : '#1e293b',
       border: player.isTurn
         ? '2px solid #60a5fa'
-        : '2px solid transparent',
+        : isWinner ? '2px solid #f59e0b' : '2px solid transparent',
       boxShadow: player.isTurn
         ? '0 0 20px rgba(96,165,250,0.5), 0 0 40px rgba(96,165,250,0.2), inset 0 0 12px rgba(96,165,250,0.1)'
-        : 'none',
+        : isWinner ? '0 0 16px rgba(245,158,11,0.4)' : 'none',
       position: 'relative',
       opacity: isFolded ? 0.4 : 1,
       transition: 'box-shadow 0.3s, border-color 0.3s, opacity 0.3s',
@@ -184,12 +200,67 @@ export default function PlayerSeat({ player, timerSeconds, isCurrentUser }: Prop
         </div>
       )}
 
-      {/* CSS keyframes injected via style tag (only once) */}
+      {/* Winner bubble */}
+      {isWinner && (
+        <div style={{
+          position: 'absolute', top: -38, left: '50%', transform: 'translateX(-50%)',
+          background: 'linear-gradient(135deg, #f59e0b, #eab308)',
+          color: '#000', padding: '4px 14px', borderRadius: '12px',
+          fontSize: '12px', fontWeight: 800, whiteSpace: 'nowrap',
+          zIndex: 12, boxShadow: '0 2px 10px rgba(245,158,11,0.5)',
+          animation: 'winBubble 4s ease-out forwards',
+          pointerEvents: 'none',
+        }}>
+          +{winAmount!.toLocaleString()}
+          {winHandRank && <span style={{ fontWeight: 600, marginLeft: '4px' }}>{winHandRank}</span>}
+        </div>
+      )}
+
+      {/* Showdown hole cards */}
+      {showdownCards && showdownCards.length > 0 && (
+        <div style={{
+          display: 'flex', gap: '3px', marginTop: '2px',
+          justifyContent: 'center',
+        }}>
+          {showdownCards.map((card, j) => (
+            <div key={j} style={{
+              width: '32px', height: '44px', borderRadius: '4px',
+              border: isWinner ? '2px solid #fbbf24' : '1px solid #475569',
+              background: '#0f172a',
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+              fontSize: '12px', fontWeight: 700, lineHeight: 1.1,
+            }}>
+              <span style={{ color: SUIT_COLORS[card.suit] }}>{card.rank}</span>
+              <span style={{ color: SUIT_COLORS[card.suit], fontSize: '11px' }}>
+                {SUIT_SYMBOLS[card.suit]}
+              </span>
+            </div>
+          ))}
+          {showdownHandRank && (
+            <span style={{
+              fontSize: '10px', color: '#94a3b8',
+              alignSelf: 'center', marginLeft: '2px', whiteSpace: 'nowrap',
+            }}>
+              {showdownHandRank}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* CSS keyframes */}
       <style>{`
         @keyframes actionBubble {
           0%   { opacity: 1; transform: translateX(-50%) translateY(0); }
           70%  { opacity: 1; transform: translateX(-50%) translateY(-6px); }
           100% { opacity: 0; transform: translateX(-50%) translateY(-14px); }
+        }
+        @keyframes winBubble {
+          0%   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+          10%  { transform: translateX(-50%) translateY(-4px) scale(1.15); }
+          20%  { transform: translateX(-50%) translateY(0) scale(1); }
+          80%  { opacity: 1; }
+          100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
         }
       `}</style>
     </div>
