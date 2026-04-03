@@ -216,6 +216,10 @@ export function startGameForRoom(io: Server, roomId: string) {
     })),
   });
 
+  // Unified public state MUST be emitted before hole cards so the client
+  // has the new handId in publicState when setHoleCards runs.
+  emitGameState(io, roomId, ctx);
+
   // Private hole cards
   for (const p of ctx.players) {
     const socketId = playerSocketMap.get(p.playerId);
@@ -223,9 +227,6 @@ export function startGameForRoom(io: Server, roomId: string) {
       io.to(socketId).emit(GAME_EVENTS.DEAL_HOLE_CARDS, { cards: p.holeCards });
     }
   }
-
-  // Unified public state
-  emitGameState(io, roomId, ctx);
 
   startTurnTimer(io, roomId, ctx);
 }

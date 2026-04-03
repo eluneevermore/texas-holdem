@@ -1,6 +1,8 @@
 import { useGameStore } from '../../stores/gameStore';
+import { useRoomStore } from '../../stores/roomStore';
 import { useAuthStore } from '../../stores/authStore';
 import type { GamePlayerPublicState } from '@poker/shared';
+import { PlayerState } from '@poker/shared';
 import PlayerSeat from './PlayerSeat';
 import CommunityCards from './CommunityCards';
 import ActionPanel from './ActionPanel';
@@ -20,11 +22,13 @@ export default function GameTable() {
   const holeCards = useGameStore((s) => s.holeCards);
   const timerSeconds = useGameStore((s) => s.timerSecondsRemaining);
   const userId = useAuthStore((s) => s.userId);
+  const roomPlayers = useRoomStore((s) => s.players);
 
   if (!gs) return null;
 
-  const me = gs.players.find((p) => p.playerId === userId);
-  const isBroke = me && me.chips === 0 && me.handState === 'FOLDED';
+  const meInHand = gs.players.find((p) => p.playerId === userId);
+  const meInRoom = roomPlayers.find((p) => p.playerId === userId);
+  const isObserver = !meInHand || meInRoom?.playerState === PlayerState.OBSERVER;
   const isMyTurn = gs.activePlayerId === userId;
 
   return (
@@ -76,11 +80,9 @@ export default function GameTable() {
         })}
       </div>
 
-      {/* Hole cards */}
-      {holeCards.length > 0 && (
-        <div style={{
-          display: 'flex', gap: '8px', marginTop: '20px',
-        }}>
+      {/* Hole cards — only show when participating */}
+      {!isObserver && holeCards.length > 0 && (
+        <div style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>
           {holeCards.map((card, i) => (
             <div key={i} style={{
               width: '64px', height: '92px', borderRadius: '8px',
@@ -100,9 +102,9 @@ export default function GameTable() {
 
       {/* Action panel / observer view / waiting */}
       <div style={{ marginTop: '20px' }}>
-        {isBroke ? (
+        {isObserver ? (
           <div style={{ textAlign: 'center' }}>
-            <p style={{ color: '#94a3b8' }}>You are observing</p>
+            <p style={{ color: '#94a3b8', margin: '0 0 12px' }}>You are observing</p>
             <BuyInButton />
           </div>
         ) : isMyTurn ? (

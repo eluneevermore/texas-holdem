@@ -380,8 +380,9 @@ describe('Full game integration', () => {
       await ec.wait(ROOM_EVENTS.JOINED);
 
       ec.emit(ROOM_EVENTS.ADD_BOT);
-      const evt = await ec.wait<{ player: { isBot: boolean } }>(ROOM_EVENTS.BOT_ADDED);
+      const evt = await ec.wait<{ player: { isBot: boolean; displayName: string } }>(ROOM_EVENTS.BOT_ADDED);
       expect(evt.player.isBot).toBe(true);
+      expect(evt.player.displayName).toMatch(/^Bot_[A-Z][a-z]+\d{2}_N$/);
     });
   });
 

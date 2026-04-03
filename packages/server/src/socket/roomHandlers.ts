@@ -48,7 +48,7 @@ export function registerRoomHandlers(io: Server, socket: Socket, user: TokenPayl
     const seatIndex = roomManager.getNextSeat(currentRoomId);
     const botPlayer: RoomPlayer = {
       playerId: botId,
-      displayName: `Bot_Normal`,
+      displayName: generateBotName(room),
       isBot: true,
       isHost: false,
       isReady: true,
@@ -223,4 +223,21 @@ function sanitizeRoom(room: NonNullable<ReturnType<typeof roomManager.getRoom>>)
     config: room.config,
     players: room.players,
   };
+}
+
+const BOT_ANIMALS = [
+  'Cat', 'Dog', 'Fox', 'Bear', 'Wolf', 'Hawk', 'Owl', 'Deer',
+  'Lion', 'Tiger', 'Puma', 'Lynx', 'Orca', 'Crow', 'Swan', 'Frog',
+  'Elk', 'Ram', 'Yak', 'Ape', 'Bat', 'Emu', 'Cod', 'Jay',
+];
+
+function generateBotName(room: NonNullable<ReturnType<typeof roomManager.getRoom>>): string {
+  const usedNames = new Set(room.players.filter((p) => p.isBot).map((p) => p.displayName));
+  for (let attempts = 0; attempts < 50; attempts++) {
+    const animal = BOT_ANIMALS[Math.floor(Math.random() * BOT_ANIMALS.length)];
+    const num = String(Math.floor(Math.random() * 100)).padStart(2, '0');
+    const name = `Bot_${animal}${num}_N`;
+    if (!usedNames.has(name)) return name;
+  }
+  return `Bot_${BOT_ANIMALS[0]}${Date.now() % 100}_N`;
 }
