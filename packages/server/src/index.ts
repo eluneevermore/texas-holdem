@@ -1,8 +1,16 @@
+import { config as loadEnv } from 'dotenv';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+loadEnv({ path: resolve(__dirname, '../../../.env') });  // repo root .env
+loadEnv({ path: resolve(__dirname, '../.env') });        // packages/server/.env
+loadEnv();                                               // cwd fallback
+
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
-import { createServer } from 'http';
 import { authRoutes } from './routes/auth.js';
 import { roomRoutes } from './routes/rooms.js';
 import { createSocketServer } from './socket/index.js';
@@ -12,7 +20,9 @@ const PORT = Number(process.env.PORT) || 3001;
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173').split(',');
 
 async function main() {
-  const app = Fastify({ logger: true });
+  const app = Fastify({
+    logger: true,
+  });
 
   await app.register(cors, { origin: CORS_ORIGINS, credentials: true });
   await app.register(cookie);
@@ -24,16 +34,12 @@ async function main() {
   await app.register(authRoutes);
   await app.register(roomRoutes);
 
-  // Create HTTP server and attach Socket.io
-  const httpServer = createServer(app.server);
-  createSocketServer(httpServer, CORS_ORIGINS);
+  await app.listen({ port: PORT, host: '0.0.0.0' });
 
-  // Use Fastify's server through the HTTP server
-  await app.ready();
+  // Attach Socket.io to Fastify's underlying HTTP server after it's listening
+  createSocketServer(app.server, CORS_ORIGINS);
 
-  httpServer.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+  app.log.info(`Server running on port ${PORT}`);
 }
 
 main().catch(console.error);

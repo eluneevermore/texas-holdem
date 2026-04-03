@@ -1,20 +1,29 @@
 import type { Server, Socket } from 'socket.io';
 import {
-  GAME_EVENTS, ROOM_EVENTS,
+  GAME_EVENTS,
   HandPhase, ActionType, PlayerState, RoomState,
   TURN_TIMER_SECONDS, BETWEEN_HAND_PAUSE_SECONDS, AFK_TIMEOUT_THRESHOLD,
 } from '@poker/shared';
+import type { ShuffleFn } from '@poker/shared';
 import { roomManager } from '../game/roomManager.js';
 import {
   startHand, processAction, getActivePlayer, getActivePlayerActions,
   type HandContext,
 } from '../game/handStateMachine.js';
 import { playerSocketMap } from './roomHandlers.js';
-import { runBotTurn } from '../bots/botRunner.js';
+import { runBotTurn, setBroadcastCallback } from '../bots/botRunner.js';
 import { v4 as uuid } from 'uuid';
 
 const activeHands = new Map<string, HandContext>();
 const turnTimers = new Map<string, NodeJS.Timeout>();
+
+const playerRoomMap = new Map<string, string>();
+
+/** Override the shuffle function for deterministic testing. null = default. */
+let shuffleOverride: ShuffleFn | null = null;
+export function setShuffleOverride(fn: ShuffleFn | null) { shuffleOverride = fn; }
+
+setBroadcastCallback(broadcastAction);
 
 export function registerGameHandlers(io: Server, socket: Socket, userId: string) {
   socket.on(GAME_EVENTS.ACTION, (data: { type: string; amount?: number }) => {
@@ -37,7 +46,6 @@ export function registerGameHandlers(io: Server, socket: Socket, userId: string)
       return;
     }
 
-    // Reset consecutive timeouts for this player
     const player = ctx.players.find((p) => p.playerId === userId);
     if (player) player.consecutiveTimeouts = 0;
 
@@ -45,7 +53,7 @@ export function registerGameHandlers(io: Server, socket: Socket, userId: string)
   });
 
   socket.on(GAME_EVENTS.BUY_IN, () => {
-    const roomId = findPlayerRoom(userId);
+    const roomId = playerRoomMap.get(userId);
     if (!roomId) return;
     const room = roomManager.getRoom(roomId);
     if (!room || !room.config.buyInAllowed) return;
@@ -65,9 +73,16 @@ export function registerGameHandlers(io: Server, socket: Socket, userId: string)
   });
 
   socket.on(GAME_EVENTS.HAND_HISTORY, ({ limit }: { limit: number }) => {
-    // Hand history is managed via REST, but this allows socket-based requests
     socket.emit(GAME_EVENTS.HAND_HISTORY_RESULT, { hands: [] });
   });
+}
+
+export function trackPlayerRoom(playerId: string, roomId: string) {
+  playerRoomMap.set(playerId, roomId);
+}
+
+export function untrackPlayerRoom(playerId: string) {
+  playerRoomMap.delete(playerId);
 }
 
 export function startGameForRoom(io: Server, roomId: string) {
@@ -81,12 +96,12 @@ export function startGameForRoom(io: Server, roomId: string) {
     (p) => p.playerState === PlayerState.WAITING || p.playerState === PlayerState.SITTING_OUT,
   );
 
-  // Assign ACTIVE state
+  if (activePlayers.length < 2) return;
+
   for (const p of activePlayers) {
     p.playerState = PlayerState.ACTIVE;
   }
 
-  // Determine dealer seat (advance clockwise from previous hand)
   const dealerSeatIndex = room.handCount === 1
     ? activePlayers[0].seatIndex
     : getNextDealer(activePlayers, room.handCount);
@@ -96,6 +111,7 @@ export function startGameForRoom(io: Server, roomId: string) {
     handId, roomId, room.handCount,
     activePlayers, dealerSeatIndex,
     room.config.smallBlind, room.config.bigBlind,
+    shuffleOverride ?? undefined,
   );
 
   activeHands.set(roomId, ctx);
@@ -112,7 +128,7 @@ export function startGameForRoom(io: Server, roomId: string) {
     })),
   });
 
-  // Deal hole cards — targeted emit to each player
+  // Hole cards — targeted emit only (never broadcast)
   for (const p of ctx.players) {
     const socketId = playerSocketMap.get(p.playerId);
     if (socketId) {
@@ -166,7 +182,7 @@ function broadcastAction(
       })),
     });
 
-    // Check for broke players
+    // Sync chip counts and mark broke players
     const room = roomManager.getRoom(roomId);
     if (room) {
       for (const p of room.players) {
@@ -183,14 +199,12 @@ function broadcastAction(
 
     activeHands.delete(roomId);
 
-    // Schedule next hand after pause
     setTimeout(() => {
       const room = roomManager.getRoom(roomId);
       if (!room) return;
 
-      // Seat players who were SITTING_OUT (buy-ins, late joins)
       for (const p of room.players) {
-        if (p.playerState === PlayerState.SITTING_OUT) {
+        if (p.playerState === PlayerState.ACTIVE || p.playerState === PlayerState.SITTING_OUT) {
           p.playerState = PlayerState.WAITING;
         }
       }
@@ -201,7 +215,6 @@ function broadcastAction(
 
       if (eligible.length >= 2) {
         roomManager.setRoomState(roomId, RoomState.WAITING);
-        // Auto-start next hand
         startGameForRoom(io, roomId);
       } else {
         roomManager.setRoomState(roomId, RoomState.WAITING);
@@ -211,7 +224,6 @@ function broadcastAction(
     return;
   }
 
-  // Start turn timer for next player
   startTurnTimer(io, roomId, ctx);
 }
 
@@ -249,7 +261,6 @@ function startTurnTimer(io: Server, roomId: string, ctx: HandContext) {
 
   turnTimers.set(roomId, timer);
 
-  // If bot, schedule bot action
   if (isBot(active.playerId, roomId)) {
     clearInterval(timer);
     turnTimers.delete(roomId);
@@ -270,7 +281,6 @@ function handleTimeout(io: Server, roomId: string, ctx: HandContext, playerId: s
     });
   }
 
-  // Auto-action: check if possible, otherwise fold
   const actions = getActivePlayerActions(ctx);
   const actionType = actions?.actions.canCheck ? ActionType.CHECK : ActionType.FOLD;
 
@@ -295,15 +305,26 @@ function isBot(playerId: string, roomId: string): boolean {
 }
 
 function findPlayerRoom(playerId: string): string | null {
+  // Check active hands first
   for (const [roomId, ctx] of activeHands) {
     if (ctx.players.some((p) => p.playerId === playerId)) return roomId;
   }
-  return null;
+  // Fall back to persistent map (covers between-hand state)
+  return playerRoomMap.get(playerId) ?? null;
 }
 
 function getNextDealer(players: { seatIndex: number }[], handNumber: number): number {
   const seats = players.map((p) => p.seatIndex).sort((a, b) => a - b);
   return seats[(handNumber - 1) % seats.length];
+}
+
+/** Reset all in-memory state — for testing only. */
+export function resetGameState() {
+  for (const timer of turnTimers.values()) clearInterval(timer);
+  activeHands.clear();
+  turnTimers.clear();
+  playerRoomMap.clear();
+  shuffleOverride = null;
 }
 
 export { activeHands };

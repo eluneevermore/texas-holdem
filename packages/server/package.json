@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --ignore ../shared/dist --ignore ../shared/src src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -14,23 +14,24 @@
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@poker/shared": "workspace:*",
-    "fastify": "^5",
-    "@fastify/cors": "^11",
     "@fastify/cookie": "^11",
+    "@fastify/cors": "^11",
     "@fastify/rate-limit": "^10",
-    "socket.io": "^4",
+    "@poker/shared": "workspace:*",
     "@prisma/client": "^6",
+    "dotenv": "^17.4.0",
+    "fastify": "^5",
     "jsonwebtoken": "^9",
+    "socket.io": "^4",
     "uuid": "^11"
   },
   "devDependencies": {
-    "vitest": "^3",
-    "typescript": "^5.7",
-    "tsx": "^4",
+    "@types/jsonwebtoken": "^9",
+    "@types/uuid": "^10",
     "prisma": "^6",
     "socket.io-client": "^4",
-    "@types/jsonwebtoken": "^9",
-    "@types/uuid": "^10"
+    "tsx": "^4",
+    "typescript": "^5.7",
+    "vitest": "^3"
   }
 }

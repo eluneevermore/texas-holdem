@@ -7,6 +7,7 @@ import {
   type BettingContext, type PotContributor, type EvaluatedHand,
   TURN_TIMER_SECONDS,
 } from '@poker/shared';
+import type { ShuffleFn } from '@poker/shared';
 
 export interface HandPlayerState {
   playerId: string;
@@ -26,6 +27,7 @@ export interface HandContext {
   roomId: string;
   handNumber: number;
   dealerSeatIndex: number;
+  dealerArrayIndex: number;
   phase: HandPhase;
   communityCards: Card[];
   deck: Card[];
@@ -46,9 +48,7 @@ export interface ActionResult {
   playerId: string;
   isAllIn: boolean;
   newPhase?: HandPhase;
-  /** Populated at showdown. */
   showdownResults?: ShowdownResult[];
-  /** Populated when hand is complete. */
   winners?: WinnerResult[];
   newCommunityCards?: Card[];
   updatedPots?: Pot[];
@@ -70,6 +70,7 @@ export interface WinnerResult {
 
 /**
  * Create a new hand context and deal cards.
+ * Accepts an optional shuffle function for deterministic testing.
  */
 export function startHand(
   handId: string,
@@ -79,11 +80,14 @@ export function startHand(
   dealerSeatIndex: number,
   smallBlind: number,
   bigBlind: number,
+  shuffleFn: ShuffleFn = fisherYatesShuffle,
 ): HandContext {
-  const deck = createDeck();
-  const [holeCardSets, remainingDeck] = dealHoleCards(deck, activePlayers.length, fisherYatesShuffle);
+  const sorted = [...activePlayers].sort((a, b) => a.seatIndex - b.seatIndex);
 
-  const players: HandPlayerState[] = activePlayers.map((p, i) => ({
+  const deck = createDeck();
+  const [holeCardSets, remainingDeck] = dealHoleCards(deck, sorted.length, shuffleFn);
+
+  const players: HandPlayerState[] = sorted.map((p, i) => ({
     playerId: p.playerId,
     seatIndex: p.seatIndex,
     holeCards: holeCardSets[i],
@@ -96,11 +100,17 @@ export function startHand(
     consecutiveTimeouts: 0,
   }));
 
+  const dealerArrayIndex = players.findIndex((p) => p.seatIndex === dealerSeatIndex);
+  if (dealerArrayIndex === -1) {
+    throw new Error(`Dealer seat ${dealerSeatIndex} not found among active players`);
+  }
+
   const ctx: HandContext = {
     handId,
     roomId,
     handNumber,
     dealerSeatIndex,
+    dealerArrayIndex,
     phase: HandPhase.PRE_FLOP,
     communityCards: [],
     deck: remainingDeck,
@@ -123,9 +133,17 @@ function postBlinds(ctx: HandContext) {
   const n = ctx.players.length;
   const isHeadsUp = n === 2;
 
-  // EDGE CASE: Heads-up — dealer posts SB, other posts BB
-  const sbIdx = isHeadsUp ? 0 : 1 % n;
-  const bbIdx = isHeadsUp ? 1 : 2 % n;
+  let sbIdx: number;
+  let bbIdx: number;
+
+  if (isHeadsUp) {
+    // EDGE CASE: Heads-up — dealer posts SB, other posts BB
+    sbIdx = ctx.dealerArrayIndex;
+    bbIdx = (ctx.dealerArrayIndex + 1) % n;
+  } else {
+    sbIdx = (ctx.dealerArrayIndex + 1) % n;
+    bbIdx = (ctx.dealerArrayIndex + 2) % n;
+  }
 
   postBlind(ctx, sbIdx, ctx.smallBlind);
   postBlind(ctx, bbIdx, ctx.bigBlind);
@@ -140,6 +158,9 @@ function postBlinds(ctx: HandContext) {
 
 function postBlind(ctx: HandContext, playerIdx: number, amount: number) {
   const player = ctx.players[playerIdx];
+  if (!player) {
+    throw new Error(`Cannot post blind: no player at index ${playerIdx} (${ctx.players.length} players)`);
+  }
   const actual = Math.min(amount, player.chips);
   player.chips -= actual;
   player.currentRoundBet = actual;
@@ -248,7 +269,6 @@ function applyAction(
       player.currentRoundBet = raiseTotal;
       player.totalBet += action.amount;
 
-      // Reset hasActed for all other active players since there's a new raise
       for (const p of ctx.players) {
         if (p.playerId !== player.playerId && p.handState === HandState.ACTIVE) {
           p.hasActedThisRound = false;
@@ -263,7 +283,6 @@ function applyAction(
         const raiseBy = allInTotal - ctx.currentBet;
         if (raiseBy >= ctx.lastRaiseSize) {
           ctx.lastRaiseSize = raiseBy;
-          // Full raise — re-open action
           for (const p of ctx.players) {
             if (p.playerId !== player.playerId && p.handState === HandState.ACTIVE) {
               p.hasActedThisRound = false;
@@ -284,18 +303,15 @@ function applyAction(
 
   player.hasActedThisRound = true;
 
-  // Check if hand is over (all folded to one)
   const activePlayers = ctx.players.filter((p) => p.handState !== HandState.FOLDED);
   if (activePlayers.length === 1) {
     return finishHandByFold(ctx, activePlayers[0], result);
   }
 
-  // Check if betting round is over
   if (isBettingRoundComplete(ctx)) {
     return advancePhase(ctx, result);
   }
 
-  // Advance to next active player
   advanceToNextPlayer(ctx);
   return result;
 }
@@ -305,7 +321,6 @@ function isBettingRoundComplete(ctx: HandContext): boolean {
     (p) => p.handState === HandState.ACTIVE,
   );
 
-  // All active players have acted and matched the current bet
   return activePlayers.every(
     (p) => p.hasActedThisRound && p.currentRoundBet === ctx.currentBet,
   );
@@ -326,10 +341,8 @@ function advanceToNextPlayer(ctx: HandContext): void {
 }
 
 function advancePhase(ctx: HandContext, result: ActionResult): ActionResult {
-  // Collect bets into pot contributions
   updatePots(ctx);
 
-  // Reset round state
   for (const p of ctx.players) {
     p.currentRoundBet = 0;
     p.hasActedThisRound = false;
@@ -339,7 +352,6 @@ function advancePhase(ctx: HandContext, result: ActionResult): ActionResult {
 
   const canAct = ctx.players.filter((p) => p.handState === HandState.ACTIVE);
 
-  // If only one or zero players can act, run out remaining community cards then showdown
   if (canAct.length <= 1) {
     runOutBoard(ctx);
     return resolveShowdown(ctx, result);
@@ -378,7 +390,6 @@ function advancePhase(ctx: HandContext, result: ActionResult): ActionResult {
 
   result.newPhase = ctx.phase;
 
-  // Post-flop: action starts left of dealer
   setPostFlopActionOrder(ctx);
 
   return result;
@@ -386,8 +397,7 @@ function advancePhase(ctx: HandContext, result: ActionResult): ActionResult {
 
 function setPostFlopActionOrder(ctx: HandContext) {
   const n = ctx.players.length;
-  // First active player left of dealer (seat-wise)
-  let idx = (0 + 1) % n; // dealer is always index 0 in our player array relative to deal order
+  let idx = (ctx.dealerArrayIndex + 1) % n;
   for (let i = 0; i < n; i++) {
     if (ctx.players[idx].handState === HandState.ACTIVE) {
       ctx.activePlayerIndex = idx;
@@ -480,13 +490,11 @@ function resolveShowdown(ctx: HandContext, result: ActionResult): ActionResult {
 
   const awards = awardPots(ctx.pots, getWinners, ctx.dealerSeatIndex, seatMap);
 
-  // Apply chip awards
   for (const award of awards) {
     const player = ctx.players.find((p) => p.playerId === award.playerId);
     if (player) player.chips += award.amount;
   }
 
-  // Build showdown and winner results
   result.showdownResults = nonFolded.map((p) => ({
     playerId: p.playerId,
     holeCards: p.holeCards,

@@ -8,7 +8,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "dev": "tsx src/cli/index.ts",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "start": "tsx src/cli/index.tsx",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

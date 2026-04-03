@@ -6,7 +6,6 @@ import { useSocketStore } from '../stores/socketStore';
 import { useGameStore } from '../stores/gameStore';
 import { connectSocket, disconnectSocket } from '../socket/connection';
 import { joinRoom } from '../lib/api';
-import { RoomState } from '@poker/shared';
 import WaitingRoom from '../components/waiting/WaitingRoom';
 import GameTable from '../components/table/GameTable';
 import ConnectionBanner from '../components/common/ConnectionBanner';
@@ -41,6 +40,8 @@ export default function RoomPage() {
     return () => {
       cancelled = true;
       disconnectSocket();
+      useRoomStore.getState().clearRoom();
+      useGameStore.getState().clearGame();
     };
   }, [token, roomCode, navigate]);
 

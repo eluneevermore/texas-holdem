@@ -1,6 +1,6 @@
 import type { Server } from 'socket.io';
 import {
-  GAME_EVENTS, ActionType,
+  ActionType,
   BOT_DELAY_MIN_MS, BOT_DELAY_MAX_MS,
   botStrategies, BotDifficulty,
 } from '@poker/shared';
@@ -10,6 +10,13 @@ import {
   processAction, getActivePlayerActions,
   type HandContext, type HandPlayerState,
 } from '../game/handStateMachine.js';
+
+/** Callback for broadcasting the result through the same path as human actions. */
+let broadcastCallback: ((io: Server, roomId: string, ctx: HandContext, result: Exclude<ReturnType<typeof processAction>, { error: string }>) => void) | null = null;
+
+export function setBroadcastCallback(cb: typeof broadcastCallback) {
+  broadcastCallback = cb;
+}
 
 /**
  * Execute a bot's turn after a randomised thinking delay.
@@ -38,62 +45,16 @@ export function runBotTurn(
     });
 
     if ('error' in result) {
-      // Fallback: if bot's decision was invalid, fold or check
       const fallbackType = activeInfo.actions.canCheck ? ActionType.CHECK : ActionType.FOLD;
       const fallbackResult = processAction(ctx, botPlayer.playerId, { type: fallbackType });
       if (!('error' in fallbackResult)) {
-        broadcastBotAction(io, roomId, ctx, fallbackResult);
+        broadcastCallback?.(io, roomId, ctx, fallbackResult);
       }
       return;
     }
 
-    broadcastBotAction(io, roomId, ctx, result);
+    broadcastCallback?.(io, roomId, ctx, result);
   }, delay);
-}
-
-function broadcastBotAction(
-  io: Server,
-  roomId: string,
-  ctx: HandContext,
-  result: Exclude<ReturnType<typeof processAction>, { error: string }>,
-) {
-  // Re-use the same broadcast flow as gameHandlers
-  // Import dynamically to avoid circular dependency
-  io.to(roomId).emit(GAME_EVENTS.ACTION_BROADCAST, {
-    playerId: result.playerId,
-    action: { type: result.type, amount: result.amount },
-  });
-
-  if (result.updatedPots) {
-    io.to(roomId).emit(GAME_EVENTS.POT_UPDATE, {
-      pots: result.updatedPots,
-      currentRoundBets: ctx.players.map((p) => ({
-        playerId: p.playerId,
-        amount: p.currentRoundBet,
-      })),
-    });
-  }
-
-  if (result.newCommunityCards) {
-    io.to(roomId).emit(GAME_EVENTS.PHASE_CHANGE, {
-      phase: result.newPhase,
-      communityCards: ctx.communityCards,
-    });
-  }
-
-  if (result.showdownResults) {
-    io.to(roomId).emit(GAME_EVENTS.SHOWDOWN, { players: result.showdownResults });
-  }
-
-  if (result.winners) {
-    io.to(roomId).emit(GAME_EVENTS.HAND_RESULT, {
-      winners: result.winners,
-      players: ctx.players.map((p) => ({
-        id: p.playerId,
-        chipsEnd: p.chips,
-      })),
-    });
-  }
 }
 
 function buildBotGameState(ctx: HandContext, bot: HandPlayerState): BotGameState {

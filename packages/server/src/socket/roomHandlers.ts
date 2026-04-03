@@ -1,13 +1,19 @@
 import type { Server, Socket } from 'socket.io';
 import {
-  ROOM_EVENTS, GAME_EVENTS,
+  ROOM_EVENTS,
   PlayerState, RoomState,
   MIN_PLAYERS, AUTO_START_COUNTDOWN_SECONDS,
 } from '@poker/shared';
 import type { RoomPlayer } from '@poker/shared';
 import { roomManager } from '../game/roomManager.js';
-import { startGameForRoom } from './gameHandlers.js';
+import { startGameForRoom, trackPlayerRoom, untrackPlayerRoom } from './gameHandlers.js';
 import type { TokenPayload } from '../auth/jwt.js';
+
+/** Map of playerId -> socketId for targeted emits. */
+export const playerSocketMap = new Map<string, string>();
+
+/** Active countdown timers per room (so we can cancel them). */
+const countdownTimers = new Map<string, NodeJS.Timeout>();
 
 export function registerRoomHandlers(io: Server, socket: Socket, user: TokenPayload) {
   let currentRoomId: string | null = null;
@@ -67,11 +73,11 @@ export function registerRoomHandlers(io: Server, socket: Socket, user: TokenPayl
     if (!kicked) return;
 
     io.to(currentRoomId).emit(ROOM_EVENTS.PLAYER_LEFT, { playerId });
-    // Notify the kicked player's socket if connected
     const kickedSocketId = playerSocketMap.get(playerId);
     if (kickedSocketId) {
       io.to(kickedSocketId).emit(ROOM_EVENTS.KICKED, { reason: 'Kicked by host' });
     }
+    untrackPlayerRoom(playerId);
   });
 
   socket.on(ROOM_EVENTS.TRANSFER_HOST, ({ playerId }: { playerId: string }) => {
@@ -101,13 +107,13 @@ export function registerRoomHandlers(io: Server, socket: Socket, user: TokenPayl
       currentRoomId = roomId;
       socket.join(roomId);
       playerSocketMap.set(user.userId, socket.id);
+      trackPlayerRoom(user.userId, roomId);
 
       const room = roomManager.getRoom(roomId);
       if (!room) return;
 
       const existingPlayer = room.players.find((p) => p.playerId === user.userId);
       if (existingPlayer) {
-        // Reconnection
         existingPlayer.playerState = PlayerState.WAITING;
         socket.emit(ROOM_EVENTS.JOINED, { room: sanitizeRoom(room), player: existingPlayer });
         return;
@@ -142,10 +148,12 @@ export function registerRoomHandlers(io: Server, socket: Socket, user: TokenPayl
 
       roomManager.removePlayer(currentRoomId, user.userId);
       playerSocketMap.delete(user.userId);
+      untrackPlayerRoom(user.userId);
       socket.leave(currentRoomId);
 
       const humans = room.players.filter((p) => !p.isBot && p.playerState !== PlayerState.LEFT);
       if (humans.length === 0) {
+        cancelCountdown(currentRoomId);
         roomManager.closeRoom(currentRoomId);
         io.to(currentRoomId).emit(ROOM_EVENTS.CLOSED, {});
       } else if (room.hostId === user.userId) {
@@ -169,20 +177,40 @@ export function registerRoomHandlers(io: Server, socket: Socket, user: TokenPayl
 
 function checkAutoStart(io: Server, room: ReturnType<typeof roomManager.getRoom>) {
   if (!room || room.state !== RoomState.WAITING) return;
+
   const humans = room.players.filter((p) => !p.isBot);
-  if (room.players.length < MIN_PLAYERS) return;
-  if (!humans.every((p) => p.isReady)) return;
+  const readyToStart = room.players.length >= MIN_PLAYERS && humans.every((p) => p.isReady);
+
+  if (!readyToStart) {
+    cancelCountdown(room.roomId);
+    io.to(room.roomId).emit(ROOM_EVENTS.COUNTDOWN, { seconds: -1 });
+    return;
+  }
+
+  // Already counting down
+  if (countdownTimers.has(room.roomId)) return;
 
   let countdown = AUTO_START_COUNTDOWN_SECONDS;
   const interval = setInterval(() => {
     if (countdown <= 0) {
       clearInterval(interval);
+      countdownTimers.delete(room.roomId);
       startGameForRoom(io, room.roomId);
       return;
     }
     io.to(room.roomId).emit(ROOM_EVENTS.COUNTDOWN, { seconds: countdown });
     countdown--;
   }, 1000);
+
+  countdownTimers.set(room.roomId, interval);
+}
+
+function cancelCountdown(roomId: string) {
+  const timer = countdownTimers.get(roomId);
+  if (timer) {
+    clearInterval(timer);
+    countdownTimers.delete(roomId);
+  }
 }
 
 function sanitizeRoom(room: NonNullable<ReturnType<typeof roomManager.getRoom>>) {
@@ -196,6 +224,3 @@ function sanitizeRoom(room: NonNullable<ReturnType<typeof roomManager.getRoom>>)
     players: room.players,
   };
 }
-
-/** Map of playerId → socketId for targeted emits. */
-export const playerSocketMap = new Map<string, string>();
