@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useRoomStore } from '../stores/roomStore';
-import { useSocketStore } from '../stores/socketStore';
 import { useGameStore } from '../stores/gameStore';
 import { connectSocket, disconnectSocket } from '../socket/connection';
 import { joinRoom } from '../lib/api';
@@ -15,7 +14,7 @@ export default function RoomPage() {
   const navigate = useNavigate();
   const token = useAuthStore((s) => s.token);
   const roomState = useRoomStore((s) => s.state);
-  const handId = useGameStore((s) => s.handId);
+  const handId = useGameStore((s) => s.publicState?.handId ?? null);
 
   useEffect(() => {
     if (!token || !roomCode) {

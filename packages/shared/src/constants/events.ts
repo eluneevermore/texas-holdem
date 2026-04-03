@@ -35,6 +35,7 @@ export const GAME_EVENTS = {
   PLAYER_AFK: 'game:playerAFK',
   BUY_IN: 'game:buyIn',
   BUY_IN_CONFIRMED: 'game:buyInConfirmed',
+  STATE_UPDATE: 'game:stateUpdate',
 } as const;
 
 export const ERROR_EVENT = 'error' as const;

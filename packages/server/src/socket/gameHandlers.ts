@@ -4,11 +4,11 @@ import {
   HandPhase, ActionType, PlayerState, RoomState,
   TURN_TIMER_SECONDS, BETWEEN_HAND_PAUSE_SECONDS, AFK_TIMEOUT_THRESHOLD,
 } from '@poker/shared';
-import type { ShuffleFn } from '@poker/shared';
+import type { ShuffleFn, GamePublicState, GamePlayerPublicState } from '@poker/shared';
 import { roomManager } from '../game/roomManager.js';
 import {
   startHand, processAction, getActivePlayer, getActivePlayerActions,
-  type HandContext,
+  type HandContext, type ShowdownResult, type WinnerResult,
 } from '../game/handStateMachine.js';
 import { playerSocketMap } from './roomHandlers.js';
 import { runBotTurn, setBroadcastCallback } from '../bots/botRunner.js';
@@ -19,11 +19,94 @@ const turnTimers = new Map<string, NodeJS.Timeout>();
 
 const playerRoomMap = new Map<string, string>();
 
-/** Override the shuffle function for deterministic testing. null = default. */
 let shuffleOverride: ShuffleFn | null = null;
 export function setShuffleOverride(fn: ShuffleFn | null) { shuffleOverride = fn; }
 
 setBroadcastCallback(broadcastAction);
+
+// ---------------------------------------------------------------------------
+// Build the unified public state snapshot
+// ---------------------------------------------------------------------------
+
+function buildGamePublicState(
+  roomId: string,
+  ctx: HandContext,
+  extra?: { winners?: WinnerResult[]; showdown?: ShowdownResult[] },
+): GamePublicState {
+  const room = roomManager.getRoom(roomId);
+  const active = getActivePlayer(ctx);
+  const actionsInfo = active ? getActivePlayerActions(ctx) : null;
+
+  const players: GamePlayerPublicState[] = ctx.players.map((p) => {
+    const rp = room?.players.find((r) => r.playerId === p.playerId);
+    return {
+      playerId: p.playerId,
+      displayName: rp?.displayName ?? p.playerId,
+      seatIndex: p.seatIndex,
+      chips: p.chips,
+      chipsAtStart: p.chipsAtStart,
+      currentRoundBet: p.currentRoundBet,
+      totalBet: p.totalBet,
+      handState: p.handState,
+      isDealer: p.seatIndex === ctx.dealerSeatIndex,
+      isTurn: active?.playerId === p.playerId,
+      buyInCount: rp?.buyInCount ?? 0,
+      lastAction: p.lastAction,
+    };
+  });
+
+  return {
+    handId: ctx.handId,
+    handNumber: ctx.handNumber,
+    phase: ctx.phase,
+    dealerSeatIndex: ctx.dealerSeatIndex,
+    smallBlind: ctx.smallBlind,
+    bigBlind: ctx.bigBlind,
+    communityCards: ctx.communityCards,
+    pots: ctx.pots,
+    totalPot: ctx.pots.reduce((s, p) => s + p.amount, 0)
+      + ctx.players.reduce((s, p) => s + p.currentRoundBet, 0),
+    currentBet: ctx.currentBet,
+    players,
+    activePlayerId: active?.playerId ?? null,
+    activePlayerTimeoutAt: active ? Date.now() + TURN_TIMER_SECONDS * 1000 : null,
+    activePlayerActions: actionsInfo ? {
+      canFold: actionsInfo.actions.canFold,
+      canCheck: actionsInfo.actions.canCheck,
+      canCall: actionsInfo.actions.canCall,
+      callAmount: actionsInfo.actions.callAmount,
+      canRaise: actionsInfo.actions.canRaise,
+      minRaise: actionsInfo.actions.minRaiseTotal,
+      maxRaise: actionsInfo.actions.maxRaiseTotal,
+    } : null,
+    winners: extra?.winners?.map((w) => ({
+      playerId: w.playerId,
+      potIndex: w.potIndex,
+      amount: w.amount,
+      handRank: w.handRank,
+    })) ?? null,
+    showdown: extra?.showdown?.map((s) => ({
+      playerId: s.playerId,
+      holeCards: s.holeCards,
+      handRank: s.handRank,
+      mucked: s.mucked,
+    })) ?? null,
+  };
+}
+
+function emitGameState(
+  io: Server,
+  roomId: string,
+  ctx: HandContext,
+  extra?: { winners?: WinnerResult[]; showdown?: ShowdownResult[] },
+) {
+  const state = buildGamePublicState(roomId, ctx, extra);
+  io.to(roomId).emit(GAME_EVENTS.STATE_UPDATE, state);
+}
+
+// ---------------------------------------------------------------------------
+// Event handlers
+// ---------------------------------------------------------------------------
 
 export function registerGameHandlers(io: Server, socket: Socket, userId: string) {
   socket.on(GAME_EVENTS.ACTION, (data: { type: string; amount?: number }) => {
@@ -85,6 +168,10 @@ export function untrackPlayerRoom(playerId: string) {
   playerRoomMap.delete(playerId);
 }
 
+// ---------------------------------------------------------------------------
+// Game lifecycle
+// ---------------------------------------------------------------------------
+
 export function startGameForRoom(io: Server, roomId: string) {
   const room = roomManager.getRoom(roomId);
   if (!room) return;
@@ -116,6 +203,7 @@ export function startGameForRoom(io: Server, roomId: string) {
 
   activeHands.set(roomId, ctx);
 
+  // Legacy event for backward compat (terminal client, tests)
   io.to(roomId).emit(GAME_EVENTS.START, {
     handId,
     handNumber: room.handCount,
@@ -128,13 +216,16 @@ export function startGameForRoom(io: Server, roomId: string) {
     })),
   });
 
-  // Hole cards — targeted emit only (never broadcast)
+  // Private hole cards
   for (const p of ctx.players) {
     const socketId = playerSocketMap.get(p.playerId);
     if (socketId) {
       io.to(socketId).emit(GAME_EVENTS.DEAL_HOLE_CARDS, { cards: p.holeCards });
     }
   }
+
+  // Unified public state
+  emitGameState(io, roomId, ctx);
 
   startTurnTimer(io, roomId, ctx);
 }
@@ -147,6 +238,7 @@ function broadcastAction(
 ) {
   clearTurnTimer(roomId);
 
+  // Legacy events for backward compat
   io.to(roomId).emit(GAME_EVENTS.ACTION_BROADCAST, {
     playerId: result.playerId,
     action: { type: result.type, amount: result.amount },
@@ -180,6 +272,12 @@ function broadcastAction(
         id: p.playerId,
         chipsEnd: p.chips,
       })),
+    });
+
+    // Emit unified state with winners + showdown
+    emitGameState(io, roomId, ctx, {
+      winners: result.winners,
+      showdown: result.showdownResults,
     });
 
     // Sync chip counts and mark broke players
@@ -224,8 +322,14 @@ function broadcastAction(
     return;
   }
 
+  // No winners yet — emit updated state and continue turn
+  emitGameState(io, roomId, ctx);
   startTurnTimer(io, roomId, ctx);
 }
+
+// ---------------------------------------------------------------------------
+// Turn timer
+// ---------------------------------------------------------------------------
 
 function startTurnTimer(io: Server, roomId: string, ctx: HandContext) {
   const active = getActivePlayer(ctx);
@@ -234,6 +338,7 @@ function startTurnTimer(io: Server, roomId: string, ctx: HandContext) {
   const actions = getActivePlayerActions(ctx);
   if (!actions) return;
 
+  // Legacy turn start event
   io.to(roomId).emit(GAME_EVENTS.TURN_START, {
     playerId: active.playerId,
     timeoutAt: Date.now() + TURN_TIMER_SECONDS * 1000,
@@ -305,11 +410,9 @@ function isBot(playerId: string, roomId: string): boolean {
 }
 
 function findPlayerRoom(playerId: string): string | null {
-  // Check active hands first
   for (const [roomId, ctx] of activeHands) {
     if (ctx.players.some((p) => p.playerId === playerId)) return roomId;
   }
-  // Fall back to persistent map (covers between-hand state)
   return playerRoomMap.get(playerId) ?? null;
 }
 

@@ -1,7 +1,6 @@
 import { useGameStore } from '../../stores/gameStore';
-import { useRoomStore } from '../../stores/roomStore';
 import { useAuthStore } from '../../stores/authStore';
-import { PlayerState } from '@poker/shared';
+import type { GamePlayerPublicState } from '@poker/shared';
 import PlayerSeat from './PlayerSeat';
 import CommunityCards from './CommunityCards';
 import ActionPanel from './ActionPanel';
@@ -17,16 +16,16 @@ const SUIT_COLORS: Record<string, string> = {
 };
 
 export default function GameTable() {
-  const players = useRoomStore((s) => s.players);
+  const gs = useGameStore((s) => s.publicState);
+  const holeCards = useGameStore((s) => s.holeCards);
+  const timerSeconds = useGameStore((s) => s.timerSecondsRemaining);
   const userId = useAuthStore((s) => s.userId);
-  const {
-    communityCards, holeCards, pots, turn, dealerSeatIndex, playerChips, winners,
-  } = useGameStore();
 
-  const totalPot = pots.reduce((sum, p) => sum + p.amount, 0);
-  const currentPlayer = players.find((p) => p.playerId === userId);
-  const isObserver = currentPlayer?.playerState === PlayerState.OBSERVER;
-  const isMyTurn = turn?.playerId === userId;
+  if (!gs) return null;
+
+  const me = gs.players.find((p) => p.playerId === userId);
+  const isBroke = me && me.chips === 0 && me.handState === 'FOLDED';
+  const isMyTurn = gs.activePlayerId === userId;
 
   return (
     <div style={{
@@ -34,6 +33,16 @@ export default function GameTable() {
       display: 'flex', flexDirection: 'column', alignItems: 'center',
       padding: '20px', fontFamily: 'system-ui, sans-serif',
     }}>
+      {/* Hand info bar */}
+      <div style={{
+        display: 'flex', gap: '16px', fontSize: '13px', color: '#94a3b8',
+        marginBottom: '8px',
+      }}>
+        <span>Hand #{gs.handNumber}</span>
+        <span>{gs.phase.replace('_', ' ')}</span>
+        <span>Blinds {gs.smallBlind}/{gs.bigBlind}</span>
+      </div>
+
       {/* Table surface */}
       <div style={{
         background: 'radial-gradient(ellipse at center, #065f46 0%, #064e3b 60%, #022c22 100%)',
@@ -41,18 +50,16 @@ export default function GameTable() {
         width: 'min(90vw, 700px)', height: 'min(50vw, 400px)',
         position: 'relative', display: 'flex', alignItems: 'center',
         justifyContent: 'center', border: '6px solid #1e293b',
-        marginTop: '20px',
+        marginTop: '8px',
       }}>
-        <CommunityCards cards={communityCards} pot={totalPot} />
+        <CommunityCards cards={gs.communityCards} totalPot={gs.totalPot} pots={gs.pots} />
 
-        {/* Player seats around the table */}
-        {players.map((p, i) => {
-          const angle = (i / Math.max(players.length, 1)) * Math.PI * 2 - Math.PI / 2;
+        {gs.players.map((p, i) => {
+          const angle = (i / Math.max(gs.players.length, 1)) * Math.PI * 2 - Math.PI / 2;
           const rx = 48;
           const ry = 42;
           const top = `${50 + ry * Math.sin(angle)}%`;
           const left = `${50 + rx * Math.cos(angle)}%`;
-          const chipInfo = playerChips.find((c) => c.playerId === p.playerId);
 
           return (
             <div key={p.playerId} style={{
@@ -61,10 +68,7 @@ export default function GameTable() {
             }}>
               <PlayerSeat
                 player={p}
-                currentBet={chipInfo?.currentBet ?? 0}
-                isDealer={p.seatIndex === dealerSeatIndex}
-                isTurn={turn?.playerId === p.playerId}
-                secondsRemaining={turn?.playerId === p.playerId ? turn.secondsRemaining : undefined}
+                timerSeconds={p.isTurn ? timerSeconds : undefined}
                 isCurrentUser={p.playerId === userId}
               />
             </div>
@@ -94,9 +98,9 @@ export default function GameTable() {
         </div>
       )}
 
-      {/* Action panel or observer view */}
+      {/* Action panel / observer view / waiting */}
       <div style={{ marginTop: '20px' }}>
-        {isObserver ? (
+        {isBroke ? (
           <div style={{ textAlign: 'center' }}>
             <p style={{ color: '#94a3b8' }}>You are observing</p>
             <BuyInButton />
@@ -104,13 +108,22 @@ export default function GameTable() {
         ) : isMyTurn ? (
           <ActionPanel />
         ) : (
-          <p style={{ color: '#64748b' }}>
-            {turn ? `Waiting for ${turn.playerId}...` : 'Waiting for next hand...'}
-          </p>
+          <WaitingMessage activePlayer={gs.players.find((p) => p.isTurn) ?? null} />
         )}
       </div>
 
       <HandResultOverlay />
     </div>
+  );
+}
+
+function WaitingMessage({ activePlayer }: { activePlayer: GamePlayerPublicState | null }) {
+  if (!activePlayer) {
+    return <p style={{ color: '#64748b' }}>Waiting for next hand...</p>;
+  }
+  return (
+    <p style={{ color: '#64748b' }}>
+      Waiting for <span style={{ color: '#e5e7eb' }}>{activePlayer.displayName}</span>...
+    </p>
   );
 }

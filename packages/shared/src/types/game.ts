@@ -70,3 +70,65 @@ export interface GameHand {
   startedAt: Date;
   completedAt?: Date;
 }
+
+// ---------------------------------------------------------------------------
+// Game public state — single authoritative snapshot broadcast to all players
+// ---------------------------------------------------------------------------
+
+export interface GamePlayerPublicState {
+  playerId: string;
+  displayName: string;
+  seatIndex: number;
+  chips: number;
+  chipsAtStart: number;
+  currentRoundBet: number;
+  totalBet: number;
+  handState: HandState;
+  isDealer: boolean;
+  isTurn: boolean;
+  buyInCount: number;
+  lastAction: { type: ActionType; amount: number } | null;
+}
+
+export interface ActivePlayerActions {
+  canFold: boolean;
+  canCheck: boolean;
+  canCall: boolean;
+  callAmount: number;
+  canRaise: boolean;
+  minRaise: number;
+  maxRaise: number;
+}
+
+export interface ShowdownPlayerState {
+  playerId: string;
+  holeCards: Card[];
+  handRank: string;
+  mucked: boolean;
+}
+
+export interface WinnerState {
+  playerId: string;
+  potIndex: number;
+  amount: number;
+  handRank?: string;
+}
+
+export interface GamePublicState {
+  handId: string;
+  handNumber: number;
+  phase: HandPhase;
+  dealerSeatIndex: number;
+  smallBlind: number;
+  bigBlind: number;
+  communityCards: Card[];
+  pots: Pot[];
+  totalPot: number;
+  currentBet: number;
+  players: GamePlayerPublicState[];
+  activePlayerId: string | null;
+  activePlayerTimeoutAt: number | null;
+  activePlayerActions: ActivePlayerActions | null;
+  winners: WinnerState[] | null;
+  showdown: ShowdownPlayerState[] | null;
+}

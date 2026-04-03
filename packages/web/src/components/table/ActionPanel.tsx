@@ -5,17 +5,18 @@ import { useGameStore } from '../../stores/gameStore';
 
 export default function ActionPanel() {
   const socket = useSocketStore((s) => s.socket);
-  const turn = useGameStore((s) => s.turn);
+  const gs = useGameStore((s) => s.publicState);
   const [raiseAmount, setRaiseAmount] = useState(0);
 
-  if (!turn) return null;
+  if (!gs || !gs.activePlayerActions) return null;
+
+  const actions = gs.activePlayerActions;
 
   const emit = (type: string, amount?: number) => {
     socket?.emit(GAME_EVENTS.ACTION, { type, amount });
   };
 
-  const minRaise = turn.minRaise;
-  const effectiveRaise = Math.max(raiseAmount, minRaise);
+  const effectiveRaise = Math.max(raiseAmount, actions.minRaise);
 
   return (
     <div style={{
@@ -27,22 +28,22 @@ export default function ActionPanel() {
         Fold
       </button>
 
-      {turn.canCheck ? (
+      {actions.canCheck ? (
         <button onClick={() => emit('CHECK')} style={btnStyle('#3b82f6')}>
           Check
         </button>
-      ) : (
+      ) : actions.canCall ? (
         <button onClick={() => emit('CALL')} style={btnStyle('#3b82f6')}>
-          Call {turn.callAmount}
+          Call {actions.callAmount}
         </button>
-      )}
+      ) : null}
 
-      {turn.canRaise && (
+      {actions.canRaise && (
         <>
           <input
             type="range"
-            min={minRaise}
-            max={turn.callAmount + 5000}
+            min={actions.minRaise}
+            max={actions.maxRaise}
             value={effectiveRaise}
             onChange={(e) => setRaiseAmount(Number(e.target.value))}
             style={{ width: '120px' }}

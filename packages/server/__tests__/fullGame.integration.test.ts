@@ -582,7 +582,46 @@ describe('Full game integration', () => {
   });
 
   // -----------------------------------------------------------------------
-  // 9. Database persistence
+  // 9. game:stateUpdate carries full public state
+  // -----------------------------------------------------------------------
+  describe('game:stateUpdate unified state', () => {
+    it('receives a complete GamePublicState on every mutation', async () => {
+      setShuffleOverride(rigDeck(
+        [[c('A', 'hearts'), c('A', 'diamonds')], [c('7', 'clubs'), c('2', 'diamonds')]],
+        [c('K', 'spades'), c('Q', 'spades'), c('8', 'hearts'), c('3', 'clubs'), c('4', 'diamonds')],
+      ));
+
+      const { guests, ecs } = await setupAndStartGame(2);
+      const monitor = ecs[0];
+
+      // First stateUpdate arrives right after game start
+      const s1 = await monitor.wait<Record<string, unknown>>(GAME_EVENTS.STATE_UPDATE, 5_000);
+      expect(s1.handId).toBeTruthy();
+      expect(s1.phase).toBe('PRE_FLOP');
+      expect(s1.dealerSeatIndex).toBeDefined();
+      expect(s1.communityCards).toEqual([]);
+      expect(s1.totalPot).toBeGreaterThan(0);
+      expect(s1.activePlayerId).toBeTruthy();
+      expect(s1.activePlayerActions).not.toBeNull();
+      expect(s1.winners).toBeNull();
+
+      const players = s1.players as { displayName: string; chips: number; handState: string; isDealer: boolean }[];
+      expect(players).toHaveLength(2);
+      expect(players.every((p) => p.displayName && p.chips > 0)).toBe(true);
+      expect(players.some((p) => p.isDealer)).toBe(true);
+
+      // After an action, another stateUpdate arrives
+      await act(monitor, ecs, guests, { type: ActionType.CALL });
+      const s2 = await monitor.wait<Record<string, unknown>>(GAME_EVENTS.STATE_UPDATE, 5_000);
+      expect(s2.phase).toBe('PRE_FLOP');
+
+      const p2 = s2.players as { lastAction: { type: string } | null }[];
+      expect(p2.some((p) => p.lastAction?.type === 'CALL')).toBe(true);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // 10. Database persistence
   // -----------------------------------------------------------------------
   describe('Database persistence', () => {
     it('room creation persists to database', async () => {

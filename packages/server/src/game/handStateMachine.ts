@@ -20,6 +20,7 @@ export interface HandPlayerState {
   handState: HandState;
   hasActedThisRound: boolean;
   consecutiveTimeouts: number;
+  lastAction: { type: ActionType; amount: number } | null;
 }
 
 export interface HandContext {
@@ -98,6 +99,7 @@ export function startHand(
     handState: HandState.ACTIVE,
     hasActedThisRound: false,
     consecutiveTimeouts: 0,
+    lastAction: null,
   }));
 
   const dealerArrayIndex = players.findIndex((p) => p.seatIndex === dealerSeatIndex);
@@ -302,6 +304,7 @@ function applyAction(
   }
 
   player.hasActedThisRound = true;
+  player.lastAction = { type: action.type, amount: action.amount };
 
   const activePlayers = ctx.players.filter((p) => p.handState !== HandState.FOLDED);
   if (activePlayers.length === 1) {
