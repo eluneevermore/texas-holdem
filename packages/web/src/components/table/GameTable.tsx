@@ -59,7 +59,10 @@ export default function GameTable() {
         <CommunityCards cards={gs.communityCards} totalPot={gs.totalPot} pots={gs.pots} />
 
         {gs.players.map((p, i) => {
-          const angle = (i / Math.max(gs.players.length, 1)) * Math.PI * 2 - Math.PI / 2;
+          const n = gs.players.length;
+          const myIdx = gs.players.findIndex((pl) => pl.playerId === userId);
+          const offset = myIdx >= 0 ? myIdx : 0;
+          const angle = ((i - offset) / Math.max(n, 1)) * Math.PI * 2 + Math.PI / 2;
           const rx = 48;
           const ry = 42;
           const top = `${50 + ry * Math.sin(angle)}%`;
