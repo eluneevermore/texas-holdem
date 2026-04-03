@@ -1,22 +1,44 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GAME_EVENTS } from '@poker/shared';
 import { useSocketStore } from '../../stores/socketStore';
 import { useGameStore } from '../../stores/gameStore';
+
+interface PotPreset {
+  label: string;
+  amount: number;
+}
 
 export default function ActionPanel() {
   const socket = useSocketStore((s) => s.socket);
   const gs = useGameStore((s) => s.publicState);
   const [raiseAmount, setRaiseAmount] = useState(0);
 
-  if (!gs || !gs.activePlayerActions) return null;
+  const actions = gs?.activePlayerActions ?? null;
 
-  const actions = gs.activePlayerActions;
+  useEffect(() => {
+    if (actions?.minRaise) setRaiseAmount(actions.minRaise);
+  }, [actions?.minRaise]);
+
+  if (!gs || !actions) return null;
 
   const emit = (type: string, amount?: number) => {
     socket?.emit(GAME_EVENTS.ACTION, { type, amount });
   };
 
   const effectiveRaise = Math.max(raiseAmount, actions.minRaise);
+
+  const potPresets: PotPreset[] = [];
+  if (actions.canRaise) {
+    const callAmt = actions.canCall ? actions.callAmount : 0;
+    const potAfterCall = gs.totalPot + callAmt;
+
+    for (const [frac, label] of [[0.25, '1/4'], [0.5, '1/2'], [1, 'Pot']] as const) {
+      const total = Math.round(gs.currentBet + frac * potAfterCall);
+      if (total >= actions.minRaise && total <= actions.maxRaise) {
+        potPresets.push({ label: `${label} Pot`, amount: total });
+      }
+    }
+  }
 
   return (
     <div style={{
@@ -40,13 +62,23 @@ export default function ActionPanel() {
 
       {actions.canRaise && (
         <>
+          {potPresets.map((p) => (
+            <button
+              key={p.label}
+              onClick={() => emit('RAISE', p.amount)}
+              style={btnStyle('#7c3aed')}
+            >
+              {p.label}
+            </button>
+          ))}
+
           <input
             type="range"
             min={actions.minRaise}
             max={actions.maxRaise}
             value={effectiveRaise}
             onChange={(e) => setRaiseAmount(Number(e.target.value))}
-            style={{ width: '120px' }}
+            style={{ width: '120px', accentColor: '#16a34a' }}
           />
           <button onClick={() => emit('RAISE', effectiveRaise)} style={btnStyle('#16a34a')}>
             Raise {effectiveRaise}
