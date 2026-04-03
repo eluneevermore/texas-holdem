@@ -1,0 +1,36 @@
+{
+  "name": "@poker/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@poker/shared": "workspace:*",
+    "fastify": "^5",
+    "@fastify/cors": "^11",
+    "@fastify/cookie": "^11",
+    "@fastify/rate-limit": "^10",
+    "socket.io": "^4",
+    "@prisma/client": "^6",
+    "jsonwebtoken": "^9",
+    "uuid": "^11"
+  },
+  "devDependencies": {
+    "vitest": "^3",
+    "typescript": "^5.7",
+    "tsx": "^4",
+    "prisma": "^6",
+    "socket.io-client": "^4",
+    "@types/jsonwebtoken": "^9",
+    "@types/uuid": "^10"
+  }
+}

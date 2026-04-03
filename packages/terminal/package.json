@@ -1,0 +1,28 @@
+{
+  "name": "@poker/terminal",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "poker": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@poker/shared": "workspace:*",
+    "ink": "^5",
+    "react": "^19",
+    "socket.io-client": "^4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/react": "^19",
+    "tsx": "^4",
+    "typescript": "^5.7",
+    "vitest": "^3"
+  }
+}

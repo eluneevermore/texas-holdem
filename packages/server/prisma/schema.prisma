@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  displayName String   @map("display_name")
+  avatarUrl   String?  @map("avatar_url")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  gamesPlayed Int @default(0) @map("games_played")
+  gamesWon    Int @default(0) @map("games_won")
+  totalBuyIns Int @default(0) @map("total_buy_ins")
+
+  @@map("users")
+}
+
+model Room {
+  id        String   @id @default(uuid())
+  roomCode  String   @unique @map("room_code")
+  hostId    String   @map("host_id")
+  state     String   @default("WAITING")
+  handCount Int      @default(0) @map("hand_count")
+  createdAt DateTime @default(now()) @map("created_at")
+  closedAt  DateTime? @map("closed_at")
+
+  smallBlind    Int     @default(10) @map("small_blind")
+  bigBlind      Int     @default(20) @map("big_blind")
+  initialStack  Int     @default(1000) @map("initial_stack")
+  buyInAllowed  Boolean @default(true) @map("buy_in_allowed")
+  buyInAmount   Int     @default(1000) @map("buy_in_amount")
+  maxPlayers    Int     @default(9) @map("max_players")
+
+  players RoomPlayer[]
+  hands   GameHand[]
+
+  @@map("rooms")
+}
+
+model RoomPlayer {
+  id          String  @id @default(uuid())
+  roomId      String  @map("room_id")
+  playerId    String  @map("player_id")
+  displayName String  @map("display_name")
+  isBot       Boolean @default(false) @map("is_bot")
+  isHost      Boolean @default(false) @map("is_host")
+  seatIndex   Int     @map("seat_index")
+  chips       Int     @default(1000)
+  playerState String  @default("WAITING") @map("player_state")
+  buyInCount  Int     @default(0) @map("buy_in_count")
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@unique([roomId, playerId])
+  @@map("room_players")
+}
+
+model GameHand {
+  id              String   @id @default(uuid())
+  roomId          String   @map("room_id")
+  handNumber      Int      @map("hand_number")
+  dealerSeatIndex Int      @map("dealer_seat_index")
+  communityCards  Json     @default("[]") @map("community_cards")
+  pots            Json     @default("[]")
+  players         Json     @default("[]")
+  winners         Json     @default("[]")
+  phase           String   @default("PRE_DEAL")
+  currentBet      Int      @default(0) @map("current_bet")
+  startedAt       DateTime @default(now()) @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@map("game_hands")
+}
