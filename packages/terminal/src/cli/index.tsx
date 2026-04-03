@@ -168,4 +168,8 @@ function App() {
   );
 }
 
-render(<App />);
+const isInteractive = process.stdin.isTTY ?? false;
+
+render(<App />, {
+  ...(isInteractive ? {} : { stdin: undefined }),
+});
