@@ -1,5 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { ROOM_EVENTS, GAME_EVENTS } from '@poker/shared';
+import type { GamePublicState } from '@poker/shared';
 import { getState, setState } from '../store/appStore.js';
 
 let socket: Socket | null = null;
@@ -69,7 +70,50 @@ export function connectSocket(serverUrl: string, token: string, roomId?: string)
     setState({ messages: [...getState().messages, 'You were kicked from the room'] });
   });
 
-  // Game events
+  /** Authoritative game snapshot (same as web client). Keeps chips/pot/turn in sync. */
+  socket.on(GAME_EVENTS.STATE_UPDATE, (gs: GamePublicState) => {
+    const s = getState();
+    const mergedPlayers = s.players.map((rp) => {
+      const gp = gs.players.find((p) => p.playerId === rp.playerId);
+      return gp ? { ...rp, chips: gp.chips } : rp;
+    });
+    const active = gs.activePlayerId;
+    const actions = gs.activePlayerActions;
+    const isMyTurn = active != null && active === s.userId;
+    const secLeft = gs.activePlayerTimeoutAt
+      ? Math.max(0, Math.ceil((gs.activePlayerTimeoutAt - Date.now()) / 1000))
+      : 0;
+
+    setState({
+      handId: gs.handId,
+      handNumber: gs.handNumber,
+      phase: gs.phase,
+      communityCards: gs.communityCards,
+      pots: gs.pots,
+      dealerSeatIndex: gs.dealerSeatIndex,
+      players: mergedPlayers,
+      turnPlayerId: active,
+      turnSecondsRemaining: secLeft,
+      turnCanCheck: isMyTurn && !!actions?.canCheck,
+      turnCanRaise: isMyTurn && !!actions?.canRaise,
+      turnCallAmount: isMyTurn && actions ? actions.callAmount : 0,
+      turnMinRaise: isMyTurn && actions ? actions.minRaise : 0,
+    });
+
+    if (gs.winners && gs.winners.length > 0) {
+      setState({
+        winners: gs.winners.map((w) => ({
+          playerId: w.playerId,
+          amount: w.amount,
+          handRank: w.handRank,
+        })),
+        handId: null,
+        turnPlayerId: null,
+      });
+    }
+  });
+
+  // Game events (legacy — still emitted alongside STATE_UPDATE)
   socket.on(GAME_EVENTS.START, ({ handId, handNumber, dealerSeatIndex }) => {
     setState({
       handId, handNumber, dealerSeatIndex,
