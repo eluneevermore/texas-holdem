@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.turbo/
+coverage/
+.env
+.env.local
+.git/
+.DS_Store
+*.md
+**/__tests__/
+packages/terminal/
