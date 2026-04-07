@@ -16,3 +16,6 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-}
     ports:
       - "127.0.0.1:3001:3001"
+networks:
+  default:
+    enable_ipv6: true
