@@ -5,21 +5,26 @@ import { render, Box, Text } from 'ink';
 import { ROOM_EVENTS } from '@poker/shared';
 import { connectSocket, getSocket, disconnectSocket } from '../socket/connection.js';
 import { getState, setState } from '../store/appStore.js';
+import AuthScreen from '../screens/AuthScreen.js';
 import LobbyScreen from '../screens/LobbyScreen.js';
 import WaitingRoomScreen from '../screens/WaitingRoomScreen.js';
 import GameTableScreen from '../screens/GameTableScreen.js';
 import SummaryScreen from '../screens/SummaryScreen.js';
-import { createGuestSession } from './auth.js';
+import { createGoogleSession, createGuestSession } from './auth.js';
 
 const SERVER_URL = process.env.POKER_SERVER_URL || 'http://localhost:3001';
 
 type Screen = 'auth' | 'auth-error' | 'lobby' | 'waiting' | 'game' | 'summary';
 
 const AUTH_TIMEOUT_MS = 5_000;
+const GOOGLE_AUTH_TIMEOUT_MS = 120_000;
 
 function App() {
   const [screen, setScreen] = useState<Screen>('auth');
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authStatus, setAuthStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [authMessage, setAuthMessage] = useState('Choose how you want to sign in.');
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const forceUpdate = useCallback(() => setTick((t) => t + 1), []);
 
@@ -30,28 +35,6 @@ function App() {
   }, [forceUpdate]);
 
   const state = getState();
-
-  // Auto-login as guest for now
-  useEffect(() => {
-    async function login() {
-      try {
-        const data = await createGuestSession(SERVER_URL, AUTH_TIMEOUT_MS);
-        setState({
-          token: data.accessToken,
-          userId: data.guestId,
-          displayName: data.displayName,
-          isGuest: true,
-        });
-        setScreen('lobby');
-      } catch {
-        const message = `Failed to connect to server at ${SERVER_URL}`;
-        setAuthError(message);
-        setState({ messages: [...getState().messages, message] });
-        setScreen('auth-error');
-      }
-    }
-    login();
-  }, []);
 
   // Watch for game state transitions
   useEffect(() => {
@@ -101,20 +84,67 @@ function App() {
     process.exit(0);
   };
 
-  if (screen === 'auth') {
-    return (
-      <Box padding={1}>
-        <Text color="gray">Connecting to server...</Text>
-      </Box>
-    );
-  }
+  const handleGuestLogin = async () => {
+    setAuthStatus('loading');
+    setAuthUrl(null);
+    setAuthMessage('Connecting to server...');
+    try {
+      const data = await createGuestSession(SERVER_URL, AUTH_TIMEOUT_MS);
+      setState({
+        token: data.accessToken,
+        userId: data.guestId,
+        displayName: data.displayName,
+        isGuest: true,
+      });
+      setScreen('lobby');
+    } catch {
+      const message = `Failed to connect to server at ${SERVER_URL}`;
+      setAuthError(message);
+      setAuthMessage(message);
+      setAuthStatus('error');
+      setState({ messages: [...getState().messages, message] });
+      setScreen('auth-error');
+    }
+  };
 
-  if (screen === 'auth-error') {
+  const handleGoogleLogin = async () => {
+    setAuthStatus('loading');
+    setAuthUrl(null);
+    setAuthMessage('Open this URL in your browser to sign in with Google:');
+    try {
+      const data = await createGoogleSession(
+        SERVER_URL,
+        GOOGLE_AUTH_TIMEOUT_MS,
+        fetch,
+        (loginUrl) => setAuthUrl(loginUrl),
+      );
+      setState({
+        token: data.accessToken,
+        userId: data.userId,
+        displayName: data.displayName,
+        isGuest: false,
+      });
+      setScreen('lobby');
+    } catch {
+      const message = `Google login failed or timed out for ${SERVER_URL}`;
+      setAuthError(message);
+      setAuthMessage(message);
+      setAuthStatus('error');
+      setState({ messages: [...getState().messages, message] });
+      setScreen('auth-error');
+    }
+  };
+
+  if (screen === 'auth' || screen === 'auth-error') {
     return (
-      <Box padding={1} flexDirection="column">
-        <Text color="red">{authError || 'Failed to connect to server'}</Text>
-        <Text color="gray">Check `POKER_SERVER_URL` and that the server is running, then restart.</Text>
-      </Box>
+      <AuthScreen
+        status={screen === 'auth-error' ? 'error' : authStatus}
+        message={screen === 'auth-error' ? (authError || authMessage) : authMessage}
+        authUrl={authUrl}
+        onGuest={handleGuestLogin}
+        onGoogle={handleGoogleLogin}
+        onQuit={handleQuit}
+      />
     );
   }
 
