@@ -1,4 +1,7 @@
 import { defineConfig } from 'vitest/config';
+import { createTestEnv } from './test/testEnv.js';
+
+const TEST_ENV = createTestEnv('server_test');
 
 export default defineConfig({
   test: {
@@ -6,12 +9,9 @@ export default defineConfig({
     include: ['src/**/*.test.ts', '__tests__/**/*.test.ts'],
     testTimeout: 60_000,
     hookTimeout: 30_000,
-    env: {
-      DATABASE_URL: 'postgresql://root:password@localhost:5222/poker_test',
-      REDIS_URL: 'redis://localhost:6379',
-      JWT_SECRET: 'test-jwt-secret',
-      JWT_REFRESH_SECRET: 'test-jwt-refresh-secret',
-      NODE_ENV: 'test',
-    },
+    fileParallelism: false,
+    globalSetup: './test/globalSetup.server.ts',
+    setupFiles: ['./test/setupServerEnv.ts'],
+    env: TEST_ENV,
   },
 });

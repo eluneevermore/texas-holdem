@@ -2,20 +2,24 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { render, Box, Text } from 'ink';
-import { ROOM_EVENTS, GAME_EVENTS } from '@poker/shared';
+import { ROOM_EVENTS } from '@poker/shared';
 import { connectSocket, getSocket, disconnectSocket } from '../socket/connection.js';
-import { getState, setState, resetState } from '../store/appStore.js';
+import { getState, setState } from '../store/appStore.js';
 import LobbyScreen from '../screens/LobbyScreen.js';
 import WaitingRoomScreen from '../screens/WaitingRoomScreen.js';
 import GameTableScreen from '../screens/GameTableScreen.js';
 import SummaryScreen from '../screens/SummaryScreen.js';
+import { createGuestSession } from './auth.js';
 
 const SERVER_URL = process.env.POKER_SERVER_URL || 'http://localhost:3001';
 
-type Screen = 'auth' | 'lobby' | 'waiting' | 'game' | 'summary';
+type Screen = 'auth' | 'auth-error' | 'lobby' | 'waiting' | 'game' | 'summary';
+
+const AUTH_TIMEOUT_MS = 5_000;
 
 function App() {
   const [screen, setScreen] = useState<Screen>('auth');
+  const [authError, setAuthError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const forceUpdate = useCallback(() => setTick((t) => t + 1), []);
 
@@ -30,10 +34,8 @@ function App() {
   // Auto-login as guest for now
   useEffect(() => {
     async function login() {
-      const isGuest = process.argv.includes('--guest') || !process.argv.includes('login');
       try {
-        const res = await fetch(`${SERVER_URL}/auth/guest`, { method: 'POST' });
-        const data = await res.json() as { guestId: string; displayName: string; accessToken: string };
+        const data = await createGuestSession(SERVER_URL, AUTH_TIMEOUT_MS);
         setState({
           token: data.accessToken,
           userId: data.guestId,
@@ -42,7 +44,10 @@ function App() {
         });
         setScreen('lobby');
       } catch {
-        setState({ messages: [...getState().messages, 'Failed to connect to server'] });
+        const message = `Failed to connect to server at ${SERVER_URL}`;
+        setAuthError(message);
+        setState({ messages: [...getState().messages, message] });
+        setScreen('auth-error');
       }
     }
     login();
@@ -100,6 +105,15 @@ function App() {
     return (
       <Box padding={1}>
         <Text color="gray">Connecting to server...</Text>
+      </Box>
+    );
+  }
+
+  if (screen === 'auth-error') {
+    return (
+      <Box padding={1} flexDirection="column">
+        <Text color="red">{authError || 'Failed to connect to server'}</Text>
+        <Text color="gray">Check `POKER_SERVER_URL` and that the server is running, then restart.</Text>
       </Box>
     );
   }

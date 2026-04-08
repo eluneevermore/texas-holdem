@@ -345,7 +345,7 @@ describe('Terminal client integration', () => {
       expect(result.exitCode === 0 || result.signal === 'SIGTERM').toBe(true);
     });
 
-    it('process exits when server is unreachable (no hang)', async () => {
+    it('does not crash when server is unreachable', async () => {
       const tui = spawnTui({ POKER_SERVER_URL: 'http://127.0.0.1:1' });
       await new Promise((r) => setTimeout(r, 5_000));
       tui.kill();
