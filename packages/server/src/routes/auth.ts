@@ -2,6 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { v4 as uuid } from 'uuid';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../auth/jwt.js';
 import { upsertUserByEmail } from '../db/userRepository.js';
+import {
+  appendTokenToRedirectUrl,
+  encodeOAuthState,
+  getOAuthRedirectTarget,
+} from '../auth/oauthRedirect.js';
 
 export async function authRoutes(app: FastifyInstance) {
   // Guest session creation
@@ -26,25 +31,31 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // Google OAuth initiation — redirects to Google
-  app.get('/auth/google', async (_request, reply) => {
+  app.get('/auth/google', async (request, reply) => {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const callbackUrl = process.env.GOOGLE_CALLBACK_URL;
     if (!clientId || !callbackUrl) {
       return reply.status(500).send({ error: 'Google OAuth not configured' });
     }
+    const { redirect } = request.query as { redirect?: string };
+    const redirectTarget = getOAuthRedirectTarget({
+      requestedRedirect: redirect,
+      referer: request.headers.referer,
+    });
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: callbackUrl,
       response_type: 'code',
       scope: 'openid email profile',
       access_type: 'offline',
+      state: encodeOAuthState(redirectTarget),
     });
     return reply.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
   });
 
   // Google OAuth callback
   app.get('/auth/google/callback', async (request, reply) => {
-    const { code } = request.query as { code?: string };
+    const { code, state } = request.query as { code?: string; state?: string };
     if (!code) return reply.status(400).send({ error: 'Missing authorization code' });
 
     try {
@@ -84,9 +95,8 @@ export async function authRoutes(app: FastifyInstance) {
         maxAge: 7 * 24 * 60 * 60,
       });
 
-      // Redirect to web client with token
-      const webUrl = process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:5173';
-      return reply.redirect(`${webUrl}?token=${accessToken}`);
+      const redirectTarget = getOAuthRedirectTarget({ state });
+      return reply.redirect(appendTokenToRedirectUrl(redirectTarget, accessToken));
     } catch (error) {
       return reply.status(500).send({ error: 'OAuth authentication failed' });
     }
