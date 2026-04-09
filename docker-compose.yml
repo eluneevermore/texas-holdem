@@ -14,8 +14,13 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
-    ports:
-      - "127.0.0.1:3001:3001"
+    expose:
+      - "3001"
+    networks:
+      - poker-net
+
 networks:
-  default:
+  poker-net:
+    name: poker-net
+    driver: bridge
     enable_ipv6: true
