@@ -24,6 +24,8 @@ interface Props {
   turnCanRaise: boolean;
   turnCallAmount: number;
   turnMinRaise: number;
+  showdown: { playerId: string; holeCards: Card[]; handRank: string; mucked: boolean }[];
+  winners: { playerId: string; displayName?: string; amount: number; handRank?: string }[];
   messages: string[];
 }
 
@@ -32,7 +34,7 @@ export default function GameTableScreen(props: Props) {
     handNumber, phase, communityCards, holeCards, pots,
     players, dealerSeatIndex, userId,
     turnPlayerId, turnSecondsRemaining, turnCanCheck, turnCanRaise,
-    turnCallAmount, turnMinRaise, messages,
+    turnCallAmount, turnMinRaise, showdown, winners, messages,
   } = props;
 
   const isMyTurn = turnPlayerId === userId;
@@ -65,6 +67,10 @@ export default function GameTableScreen(props: Props) {
   });
 
   const totalPot = pots.reduce((sum, p) => sum + p.amount, 0);
+  const flashWinners = winners.length > 0 && Math.floor(Date.now() / 500) % 2 === 0;
+  const winnerIds = new Set(winners.map((winner) => winner.playerId));
+  const showdownByPlayerId = new Map(showdown.map((entry) => [entry.playerId, entry] as const));
+  const resultWidth = 28;
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -88,18 +94,29 @@ export default function GameTableScreen(props: Props) {
 
         {/* Player table */}
         <Text bold>
-          {'  Seat  Player                    Chips   Bet   Role'}
+          {'  Seat  Player                    Chips   Bet   Role    Revealed / Result'}
         </Text>
         <Text color="gray">
-          {'  ────  ──────────────────────── ─────   ───   ────'}
+          {'  ────  ──────────────────────── ─────   ───   ─────   ────────────────────────────'}
         </Text>
         {players.map((p) => {
           const role = getRoleLabel(p, dealerSeatIndex, players);
           const isActive = turnPlayerId === p.playerId;
           const isFolded = p.playerState === 'FOLDED';
+          const isWinner = winnerIds.has(p.playerId);
+          const showdownInfo = showdownByPlayerId.get(p.playerId);
+          const revealed = showdownInfo?.mucked
+            ? 'mucked'
+            : showdownInfo
+              ? `${formatCards(showdownInfo.holeCards)} ${showdownInfo.handRank}`
+              : '';
+          const resultText = winners.find((winner) => winner.playerId === p.playerId)
+            ? `wins ${winners.filter((winner) => winner.playerId === p.playerId).reduce((sum, winner) => sum + winner.amount, 0)}`
+            : revealed;
+          const rowAccent = isWinner && flashWinners ? 'yellow' : isActive ? 'cyan' : undefined;
           return (
-            <Text key={p.playerId} color={isActive ? 'cyan' : undefined}>
-              {'  '}[{p.seatIndex + 1}]   <Text dimColor={isFolded}>{formatPlayerName(p, userId, PLAYER_NAME_WIDTH)}</Text> {String(p.chips).padStart(5)}   {'---'.padStart(3)}   {role}
+            <Text key={p.playerId} color={rowAccent} bold={isWinner}>
+              {'  '}[{p.seatIndex + 1}]   <Text dimColor={isFolded}>{formatPlayerName(p, userId, PLAYER_NAME_WIDTH)}</Text> {String(p.chips).padStart(5)}   {'---'.padStart(3)}   {role.padEnd(6)}  {truncateAndPad(resultText, resultWidth)}
             </Text>
           );
         })}
@@ -115,6 +132,11 @@ export default function GameTableScreen(props: Props) {
           ))}
         </Text>
         <Text>  Phase: {phase}  {isMyTurn ? `— Your turn! (${turnSecondsRemaining}s)` : ''}</Text>
+        {winners.length > 0 && (
+          <Text color="yellow" bold>
+            {'  '}Result: {winners.map((winner) => `${winner.displayName || winner.playerId} +${winner.amount}`).join('  |  ')}
+          </Text>
+        )}
         <Text> </Text>
 
         {/* Actions */}
@@ -164,6 +186,10 @@ function CardText({ card }: { card: Card }) {
       {']'}
     </Text>
   );
+}
+
+function formatCards(cards: Card[]): string {
+  return cards.map((card) => `[${card.rank}${SUIT_SYM[card.suit]}]`).join('');
 }
 
 function getRoleLabel(p: RoomPlayer, dealerSeat: number, players: RoomPlayer[]): string {

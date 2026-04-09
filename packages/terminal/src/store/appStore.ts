@@ -27,6 +27,7 @@ export interface AppState {
   turnCallAmount: number;
   turnMinRaise: number;
 
+  showdown: { playerId: string; holeCards: Card[]; handRank: string; mucked: boolean }[];
   winners: { playerId: string; displayName?: string; amount: number; handRank?: string }[];
   messages: string[];
 }
@@ -42,6 +43,7 @@ export function createInitialState(): AppState {
     turnPlayerId: null, turnSecondsRemaining: 0,
     turnCanCheck: false, turnCanRaise: false,
     turnCallAmount: 0, turnMinRaise: 0,
+    showdown: [],
     winners: [], messages: [],
   };
 }

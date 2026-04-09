@@ -9,12 +9,11 @@ import AuthScreen from '../screens/AuthScreen.js';
 import LobbyScreen from '../screens/LobbyScreen.js';
 import WaitingRoomScreen from '../screens/WaitingRoomScreen.js';
 import GameTableScreen from '../screens/GameTableScreen.js';
-import SummaryScreen from '../screens/SummaryScreen.js';
 import { createGoogleSession, createGuestSession } from './auth.js';
 
 const SERVER_URL = process.env.POKER_SERVER_URL || 'http://localhost:3001';
 
-type Screen = 'auth' | 'auth-error' | 'lobby' | 'connecting-room' | 'waiting' | 'game' | 'summary';
+type Screen = 'auth' | 'auth-error' | 'lobby' | 'connecting-room' | 'waiting' | 'game';
 
 const AUTH_TIMEOUT_MS = 5_000;
 const GOOGLE_AUTH_TIMEOUT_MS = 120_000;
@@ -49,10 +48,9 @@ function App() {
   // Watch for game state transitions
   useEffect(() => {
     if (state.handId && screen !== 'game') setScreen('game');
-    if (!state.handId && state.winners.length > 0 && screen !== 'summary') setScreen('summary');
     if (state.winners.length > 0) {
       const timeout = setTimeout(() => {
-        setState({ winners: [] });
+        setState({ winners: [], showdown: [] });
         if (state.roomId) setScreen('game');
       }, 5000);
       return () => clearTimeout(timeout);
@@ -211,15 +209,6 @@ function App() {
     );
   }
 
-  if (screen === 'summary') {
-    return (
-      <SummaryScreen
-        handNumber={state.handNumber}
-        winners={state.winners}
-      />
-    );
-  }
-
   if (screen === 'game') {
     return (
       <GameTableScreen
@@ -237,6 +226,8 @@ function App() {
         turnCanRaise={state.turnCanRaise}
         turnCallAmount={state.turnCallAmount}
         turnMinRaise={state.turnMinRaise}
+        showdown={state.showdown}
+        winners={state.winners}
         messages={state.messages}
       />
     );

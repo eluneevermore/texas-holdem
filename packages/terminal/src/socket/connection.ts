@@ -119,6 +119,12 @@ export function connectSocket(serverUrl: string, token: string, options: Connect
       turnCanRaise: isMyTurn && !!actions?.canRaise,
       turnCallAmount: isMyTurn && actions ? actions.callAmount : 0,
       turnMinRaise: isMyTurn && actions ? actions.minRaise : 0,
+      showdown: gs.showdown?.map((entry) => ({
+        playerId: entry.playerId,
+        holeCards: entry.holeCards,
+        handRank: entry.handRank,
+        mucked: entry.mucked,
+      })) ?? [],
     });
 
     if (gs.winners && gs.winners.length > 0) {
@@ -141,7 +147,7 @@ export function connectSocket(serverUrl: string, token: string, options: Connect
       handId, handNumber, dealerSeatIndex,
       phase: 'PRE_FLOP',
       communityCards: [], holeCards: [],
-      pots: [], winners: [],
+      pots: [], winners: [], showdown: [],
     });
   });
 
