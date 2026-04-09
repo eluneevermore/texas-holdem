@@ -96,9 +96,10 @@ export default function GameTableScreen(props: Props) {
         {players.map((p) => {
           const role = getRoleLabel(p, dealerSeatIndex, players);
           const isActive = turnPlayerId === p.playerId;
+          const isFolded = p.playerState === 'FOLDED';
           return (
             <Text key={p.playerId} color={isActive ? 'cyan' : undefined}>
-              {'  '}[{p.seatIndex + 1}]   {formatPlayerName(p, userId, PLAYER_NAME_WIDTH)} {String(p.chips).padStart(5)}   {'---'.padStart(3)}   {role}
+              {'  '}[{p.seatIndex + 1}]   <Text dimColor={isFolded}>{formatPlayerName(p, userId, PLAYER_NAME_WIDTH)}</Text> {String(p.chips).padStart(5)}   {'---'.padStart(3)}   {role}
             </Text>
           );
         })}
@@ -159,8 +160,7 @@ function CardText({ card }: { card: Card }) {
   return (
     <Text>
       {'['}
-      {card.rank}
-      <Text color={suitColor}>{SUIT_SYM[card.suit]}</Text>
+      <Text color={suitColor}>{card.rank}{SUIT_SYM[card.suit]}</Text>
       {']'}
     </Text>
   );
