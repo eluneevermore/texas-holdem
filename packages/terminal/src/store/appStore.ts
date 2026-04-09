@@ -27,7 +27,7 @@ export interface AppState {
   turnCallAmount: number;
   turnMinRaise: number;
 
-  winners: { playerId: string; amount: number; handRank?: string }[];
+  winners: { playerId: string; displayName?: string; amount: number; handRank?: string }[];
   messages: string[];
 }
 

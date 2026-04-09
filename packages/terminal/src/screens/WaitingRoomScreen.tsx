@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { RoomConfig, RoomPlayer } from '@poker/shared';
 
+const PLAYER_NAME_WIDTH = 26;
+
 interface Props {
   roomCode: string;
   config: RoomConfig;
@@ -32,15 +34,15 @@ export default function WaitingRoomScreen({
         <Text> </Text>
 
         <Text bold>
-          {'  Seat  Player            Chips    Ready'}
+          {'  Seat  Player                      Chips    Ready'}
         </Text>
         <Text color="gray">
-          {'  ────  ──────────────    ─────    ─────'}
+          {'  ────  ────────────────────────── ─────    ─────'}
         </Text>
 
         {players.map((p) => (
           <Text key={p.playerId}>
-            {'  '}[{p.seatIndex + 1}]   {formatName(p, userId).padEnd(18)} {String(p.chips).padStart(5)}    {p.isReady ? '\u2713' : '\u2717'}
+            {'  '}[{p.seatIndex + 1}]   {formatName(p, userId, PLAYER_NAME_WIDTH)} {String(p.chips).padStart(5)}    {p.isReady ? '\u2713' : '\u2717'}
           </Text>
         ))}
 
@@ -51,10 +53,16 @@ export default function WaitingRoomScreen({
   );
 }
 
-function formatName(p: RoomPlayer, userId: string): string {
+function formatName(p: RoomPlayer, userId: string, width: number): string {
   let name = p.displayName;
   if (p.playerId === userId) name += ' (you)';
   if (p.isHost) name += ' HOST';
   if (p.isBot) name += ' [BOT]';
-  return name;
+  return truncateAndPad(name, width);
+}
+
+function truncateAndPad(value: string, width: number): string {
+  if (value.length <= width) return value.padEnd(width);
+  if (width <= 3) return '.'.repeat(width);
+  return `${value.slice(0, width - 3)}...`;
 }

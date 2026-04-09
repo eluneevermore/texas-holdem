@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 
 interface Winner {
   playerId: string;
+  displayName?: string;
   amount: number;
   handRank?: string;
 }
@@ -21,7 +22,7 @@ export default function SummaryScreen({ handNumber, winners }: Props) {
         {winners.map((w, i) => (
           <Box key={i} flexDirection="column">
             <Text bold color="yellow">
-              {w.playerId} wins {w.amount} chips
+              {w.displayName || w.playerId} wins {w.amount} chips
             </Text>
             {w.handRank && <Text color="gray">  with: {w.handRank}</Text>}
           </Box>

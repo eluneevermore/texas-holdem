@@ -7,6 +7,7 @@ import { getSocket } from '../socket/connection.js';
 const SUIT_SYM: Record<string, string> = {
   spades: '\u2660', hearts: '\u2665', diamonds: '\u2666', clubs: '\u2663',
 };
+const PLAYER_NAME_WIDTH = 24;
 
 interface Props {
   handNumber: number;
@@ -75,25 +76,29 @@ export default function GameTableScreen(props: Props) {
         <Text>
           {'  Community: '}
           {Array.from({ length: 5 }).map((_, i) => {
-            const c = communityCards[i];
-            return c ? `[${c.rank}${SUIT_SYM[c.suit]}]` : '[ ? ]';
-          }).join('')}
+            const card = communityCards[i];
+            return (
+              <Text key={i}>
+                {card ? <CardText card={card} /> : '[ ? ]'}
+              </Text>
+            );
+          })}
         </Text>
         <Text> </Text>
 
         {/* Player table */}
         <Text bold>
-          {'  Seat  Player          Chips   Bet   Role'}
+          {'  Seat  Player                    Chips   Bet   Role'}
         </Text>
         <Text color="gray">
-          {'  ────  ──────────────  ─────   ───   ────'}
+          {'  ────  ──────────────────────── ─────   ───   ────'}
         </Text>
         {players.map((p) => {
           const role = getRoleLabel(p, dealerSeatIndex, players);
           const isActive = turnPlayerId === p.playerId;
           return (
             <Text key={p.playerId} color={isActive ? 'cyan' : undefined}>
-              {'  '}[{p.seatIndex + 1}]   {formatPlayerName(p, userId).padEnd(16)} {String(p.chips).padStart(5)}   {'---'.padStart(3)}   {role}
+              {'  '}[{p.seatIndex + 1}]   {formatPlayerName(p, userId, PLAYER_NAME_WIDTH)} {String(p.chips).padStart(5)}   {'---'.padStart(3)}   {role}
             </Text>
           );
         })}
@@ -102,7 +107,11 @@ export default function GameTableScreen(props: Props) {
         <Text> </Text>
         <Text>
           {'  Your cards: '}
-          {holeCards.map((c) => `[${c.rank}${SUIT_SYM[c.suit]}]`).join('')}
+          {holeCards.map((card, i) => (
+            <Text key={i}>
+              <CardText card={card} />
+            </Text>
+          ))}
         </Text>
         <Text>  Phase: {phase}  {isMyTurn ? `— Your turn! (${turnSecondsRemaining}s)` : ''}</Text>
         <Text> </Text>
@@ -133,10 +142,28 @@ export default function GameTableScreen(props: Props) {
   );
 }
 
-function formatPlayerName(p: RoomPlayer, userId: string): string {
+function formatPlayerName(p: RoomPlayer, userId: string, width: number): string {
   let name = p.displayName;
   if (p.playerId === userId) name += ' (you)';
-  return name;
+  return truncateAndPad(name, width);
+}
+
+function truncateAndPad(value: string, width: number): string {
+  if (value.length <= width) return value.padEnd(width);
+  if (width <= 3) return '.'.repeat(width);
+  return `${value.slice(0, width - 3)}...`;
+}
+
+function CardText({ card }: { card: Card }) {
+  const suitColor = card.suit === 'hearts' || card.suit === 'diamonds' ? 'red' : undefined;
+  return (
+    <Text>
+      {'['}
+      {card.rank}
+      <Text color={suitColor}>{SUIT_SYM[card.suit]}</Text>
+      {']'}
+    </Text>
+  );
 }
 
 function getRoleLabel(p: RoomPlayer, dealerSeat: number, players: RoomPlayer[]): string {

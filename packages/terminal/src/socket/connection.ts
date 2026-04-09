@@ -5,6 +5,10 @@ import { getState, setState } from '../store/appStore.js';
 
 let socket: Socket | null = null;
 
+function resolvePlayerName(playerId: string): string {
+  return getState().players.find((player) => player.playerId === playerId)?.displayName ?? playerId;
+}
+
 interface ConnectSocketOptions {
   roomId?: string;
   onJoined?: () => void;
@@ -121,6 +125,7 @@ export function connectSocket(serverUrl: string, token: string, options: Connect
       setState({
         winners: gs.winners.map((w) => ({
           playerId: w.playerId,
+          displayName: resolvePlayerName(w.playerId),
           amount: w.amount,
           handRank: w.handRank,
         })),
@@ -181,7 +186,14 @@ export function connectSocket(serverUrl: string, token: string, options: Connect
   });
 
   socket.on(GAME_EVENTS.HAND_RESULT, ({ winners }) => {
-    setState({ winners, handId: null, turnPlayerId: null });
+    setState({
+      winners: winners.map((winner: { playerId: string; amount: number; handRank?: string }) => ({
+        ...winner,
+        displayName: resolvePlayerName(winner.playerId),
+      })),
+      handId: null,
+      turnPlayerId: null,
+    });
   });
 
   return socket;
