@@ -6,7 +6,7 @@ import {
 } from '@poker/shared';
 import type { RoomPlayer } from '@poker/shared';
 import { roomManager } from '../game/roomManager.js';
-import { startGameForRoom, trackPlayerRoom, untrackPlayerRoom } from './gameHandlers.js';
+import { cleanupRoomGameState, startGameForRoom, trackPlayerRoom, untrackPlayerRoom } from './gameHandlers.js';
 import type { TokenPayload } from '../auth/jwt.js';
 
 /** Map of playerId -> socketId for targeted emits. */
@@ -154,6 +154,7 @@ export function registerRoomHandlers(io: Server, socket: Socket, user: TokenPayl
       const humans = room.players.filter((p) => !p.isBot && p.playerState !== PlayerState.LEFT);
       if (humans.length === 0) {
         cancelCountdown(currentRoomId);
+        cleanupRoomGameState(currentRoomId);
         roomManager.closeRoom(currentRoomId);
         io.to(currentRoomId).emit(ROOM_EVENTS.CLOSED, {});
       } else if (room.hostId === user.userId) {

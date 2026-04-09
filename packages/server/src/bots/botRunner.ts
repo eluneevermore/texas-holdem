@@ -13,6 +13,7 @@ import {
 
 /** Callback for broadcasting the result through the same path as human actions. */
 let broadcastCallback: ((io: Server, roomId: string, ctx: HandContext, result: Exclude<ReturnType<typeof processAction>, { error: string }>) => void) | null = null;
+const botTurnTimers = new Map<string, Set<NodeJS.Timeout>>();
 
 export function setBroadcastCallback(cb: typeof broadcastCallback) {
   broadcastCallback = cb;
@@ -30,7 +31,11 @@ export function runBotTurn(
 ) {
   const delay = BOT_DELAY_MIN_MS + Math.random() * (BOT_DELAY_MAX_MS - BOT_DELAY_MIN_MS);
 
-  setTimeout(() => {
+  const timer = setTimeout(() => {
+    unregisterBotTimer(roomId, timer);
+
+    if (!roomManager.getRoom(roomId)) return;
+
     const activeInfo = getActivePlayerActions(ctx);
     if (!activeInfo || activeInfo.player.playerId !== botPlayer.playerId) return;
 
@@ -55,6 +60,53 @@ export function runBotTurn(
 
     broadcastCallback?.(io, roomId, ctx, result);
   }, delay);
+
+  registerBotTimer(roomId, timer);
+}
+
+export function clearBotTimers(roomId: string) {
+  const timers = botTurnTimers.get(roomId);
+  if (!timers) return;
+
+  for (const timer of timers) {
+    clearTimeout(timer);
+  }
+
+  botTurnTimers.delete(roomId);
+}
+
+export function clearAllBotTimers() {
+  for (const timers of botTurnTimers.values()) {
+    for (const timer of timers) {
+      clearTimeout(timer);
+    }
+  }
+
+  botTurnTimers.clear();
+}
+
+export function getBotTimerCount(roomId?: string): number {
+  if (roomId) return botTurnTimers.get(roomId)?.size ?? 0;
+  return [...botTurnTimers.values()].reduce((count, timers) => count + timers.size, 0);
+}
+
+function registerBotTimer(roomId: string, timer: NodeJS.Timeout) {
+  let timers = botTurnTimers.get(roomId);
+  if (!timers) {
+    timers = new Set<NodeJS.Timeout>();
+    botTurnTimers.set(roomId, timers);
+  }
+  timers.add(timer);
+}
+
+function unregisterBotTimer(roomId: string, timer: NodeJS.Timeout) {
+  const timers = botTurnTimers.get(roomId);
+  if (!timers) return;
+
+  timers.delete(timer);
+  if (timers.size === 0) {
+    botTurnTimers.delete(roomId);
+  }
 }
 
 function buildBotGameState(ctx: HandContext, bot: HandPlayerState): BotGameState {

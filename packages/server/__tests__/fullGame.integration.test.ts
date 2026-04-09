@@ -15,7 +15,7 @@ import { authRoutes } from '../src/routes/auth.js';
 import { roomRoutes } from '../src/routes/rooms.js';
 import { createSocketServer } from '../src/socket/index.js';
 import { roomManager } from '../src/game/roomManager.js';
-import { setShuffleOverride, resetGameState } from '../src/socket/gameHandlers.js';
+import { getGameStateSnapshot, setShuffleOverride, resetGameState } from '../src/socket/gameHandlers.js';
 import { prisma } from '../src/db/client.js';
 
 // ---------------------------------------------------------------------------
@@ -383,6 +383,36 @@ describe('Full game integration', () => {
       const evt = await ec.wait<{ player: { isBot: boolean; displayName: string } }>(ROOM_EVENTS.BOT_ADDED);
       expect(evt.player.isBot).toBe(true);
       expect(evt.player.displayName).toMatch(/^Bot_[A-Z][a-z]+\d{2}_N$/);
+    });
+
+    it('cleans game state when the last human disconnects mid-hand', async () => {
+      const host = await guestToken();
+      const { roomId } = await createRoomRest(host.token);
+      const ec = connect(host.token, roomId);
+      await ec.wait(ROOM_EVENTS.JOINED);
+
+      ec.emit(ROOM_EVENTS.ADD_BOT);
+      await ec.wait(ROOM_EVENTS.BOT_ADDED);
+
+      ec.emit(ROOM_EVENTS.READY_TOGGLE);
+      await ec.wait<StartData>(GAME_EVENTS.START, 20_000);
+      await ec.wait(GAME_EVENTS.DEAL_HOLE_CARDS, 5_000);
+
+      expect(getGameStateSnapshot(roomId).activeHandCount).toBe(1);
+      expect(getGameStateSnapshot(roomId).turnTimerCount).toBe(1);
+
+      ec.socket.disconnect();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(roomManager.getRoom(roomId)).toBeUndefined();
+      expect(getGameStateSnapshot(roomId)).toEqual({
+        activeHandCount: 0,
+        turnTimerCount: 0,
+        betweenHandTimerCount: 0,
+        playerRoomCount: 0,
+        botTimerCount: 0,
+      });
     });
   });
 

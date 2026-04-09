@@ -11,11 +11,18 @@ import {
   type HandContext, type ShowdownResult, type WinnerResult,
 } from '../game/handStateMachine.js';
 import { playerSocketMap } from './roomHandlers.js';
-import { runBotTurn, setBroadcastCallback } from '../bots/botRunner.js';
+import {
+  clearAllBotTimers,
+  clearBotTimers,
+  getBotTimerCount,
+  runBotTurn,
+  setBroadcastCallback,
+} from '../bots/botRunner.js';
 import { v4 as uuid } from 'uuid';
 
 const activeHands = new Map<string, HandContext>();
 const turnTimers = new Map<string, NodeJS.Timeout>();
+const betweenHandTimers = new Map<string, NodeJS.Timeout>();
 
 const playerRoomMap = new Map<string, string>();
 
@@ -298,7 +305,9 @@ function broadcastAction(
 
     activeHands.delete(roomId);
 
-    setTimeout(() => {
+    const betweenHandTimer = setTimeout(() => {
+      betweenHandTimers.delete(roomId);
+
       const room = roomManager.getRoom(roomId);
       if (!room) return;
 
@@ -319,6 +328,7 @@ function broadcastAction(
         roomManager.setRoomState(roomId, RoomState.WAITING);
       }
     }, BETWEEN_HAND_PAUSE_SECONDS * 1000);
+    betweenHandTimers.set(roomId, betweenHandTimer);
 
     return;
   }
@@ -425,10 +435,44 @@ function getNextDealer(players: { seatIndex: number }[], handNumber: number): nu
 /** Reset all in-memory state — for testing only. */
 export function resetGameState() {
   for (const timer of turnTimers.values()) clearInterval(timer);
+  for (const timer of betweenHandTimers.values()) clearTimeout(timer);
   activeHands.clear();
   turnTimers.clear();
+  betweenHandTimers.clear();
   playerRoomMap.clear();
+  clearAllBotTimers();
   shuffleOverride = null;
+}
+
+export function cleanupRoomGameState(roomId: string) {
+  clearTurnTimer(roomId);
+
+  const betweenHandTimer = betweenHandTimers.get(roomId);
+  if (betweenHandTimer) {
+    clearTimeout(betweenHandTimer);
+    betweenHandTimers.delete(roomId);
+  }
+
+  clearBotTimers(roomId);
+  activeHands.delete(roomId);
+
+  for (const [playerId, trackedRoomId] of playerRoomMap.entries()) {
+    if (trackedRoomId === roomId) {
+      playerRoomMap.delete(playerId);
+    }
+  }
+}
+
+export function getGameStateSnapshot(roomId?: string) {
+  return {
+    activeHandCount: roomId ? Number(activeHands.has(roomId)) : activeHands.size,
+    turnTimerCount: roomId ? Number(turnTimers.has(roomId)) : turnTimers.size,
+    betweenHandTimerCount: roomId ? Number(betweenHandTimers.has(roomId)) : betweenHandTimers.size,
+    playerRoomCount: roomId
+      ? [...playerRoomMap.values()].filter((trackedRoomId) => trackedRoomId === roomId).length
+      : playerRoomMap.size,
+    botTimerCount: getBotTimerCount(roomId),
+  };
 }
 
 export { activeHands };
