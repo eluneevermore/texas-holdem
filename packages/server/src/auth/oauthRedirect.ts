@@ -6,7 +6,27 @@ function getAllowedOrigins(): string[] {
 }
 
 function isAllowedOrigin(origin: string): boolean {
-  return getAllowedOrigins().includes(origin);
+  if (getAllowedOrigins().includes(origin)) return true;
+
+  try {
+    const candidate = new URL(origin);
+    if (!isLoopbackHostname(candidate.hostname)) return false;
+
+    return getAllowedOrigins().some((allowedOrigin) => {
+      try {
+        const allowed = new URL(allowedOrigin);
+        return candidate.protocol === allowed.protocol && isLoopbackHostname(allowed.hostname);
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 }
 
 export function encodeOAuthState(redirectUrl: string): string {

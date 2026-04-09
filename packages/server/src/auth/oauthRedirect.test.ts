@@ -36,6 +36,12 @@ describe('oauthRedirect', () => {
     })).toBe('http://localhost:5173/rooms/ABC123');
   });
 
+  it('allows loopback callback redirects on ephemeral ports', () => {
+    expect(getOAuthRedirectTarget({
+      requestedRedirect: 'http://127.0.0.1:49231/?source=terminal',
+    })).toBe('http://127.0.0.1:49231/?source=terminal');
+  });
+
   it('falls back to the first allowed origin for unsafe redirects', () => {
     expect(getOAuthRedirectTarget({
       requestedRedirect: 'https://evil.example.com/phish',
