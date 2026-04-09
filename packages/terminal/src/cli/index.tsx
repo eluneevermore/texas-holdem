@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { render, Box, Text } from 'ink';
+import { render, Box, Text, type Instance } from 'ink';
 import { ROOM_EVENTS } from '@poker/shared';
 import { connectSocket, getSocket, disconnectSocket } from '../socket/connection.js';
 import { getState, setState } from '../store/appStore.js';
@@ -14,10 +14,20 @@ import { createGoogleSession, createGuestSession } from './auth.js';
 
 const SERVER_URL = process.env.POKER_SERVER_URL || 'http://localhost:3001';
 
-type Screen = 'auth' | 'auth-error' | 'lobby' | 'waiting' | 'game' | 'summary';
+type Screen = 'auth' | 'auth-error' | 'lobby' | 'connecting-room' | 'waiting' | 'game' | 'summary';
 
 const AUTH_TIMEOUT_MS = 5_000;
 const GOOGLE_AUTH_TIMEOUT_MS = 120_000;
+let inkApp: Instance | null = null;
+let cleanedUp = false;
+
+function cleanupAndExit(exitCode = 0) {
+  if (cleanedUp) return;
+  cleanedUp = true;
+  disconnectSocket();
+  inkApp?.unmount();
+  process.exit(exitCode);
+}
 
 function App() {
   const [screen, setScreen] = useState<Screen>('auth');
@@ -54,11 +64,21 @@ function App() {
     try {
       const res = await fetch(`${SERVER_URL}/rooms`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${state.token}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${state.token}` },
       });
+      if (!res.ok) {
+        throw new Error(`Failed to create room with status ${res.status}`);
+      }
       const { roomId, roomCode } = await res.json() as { roomId: string; roomCode: string };
-      connectSocket(SERVER_URL, state.token, roomId);
-      setScreen('waiting');
+      setScreen('connecting-room');
+      connectSocket(SERVER_URL, state.token, {
+        roomId,
+        onJoined: () => setScreen('waiting'),
+        onConnectError: () => {
+          setState({ messages: [...getState().messages, `Failed to join room ${roomCode}`] });
+          setScreen('lobby');
+        },
+      });
     } catch {
       setState({ messages: [...state.messages, 'Failed to create room'] });
     }
@@ -69,19 +89,28 @@ function App() {
     try {
       const res = await fetch(`${SERVER_URL}/rooms/${code}/join`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${state.token}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${state.token}` },
       });
+      if (!res.ok) {
+        throw new Error(`Failed to join room with status ${res.status}`);
+      }
       const { roomId } = await res.json() as { roomId: string };
-      connectSocket(SERVER_URL, state.token, roomId);
-      setScreen('waiting');
+      setScreen('connecting-room');
+      connectSocket(SERVER_URL, state.token, {
+        roomId,
+        onJoined: () => setScreen('waiting'),
+        onConnectError: () => {
+          setState({ messages: [...getState().messages, `Failed to join room ${code}`] });
+          setScreen('lobby');
+        },
+      });
     } catch {
       setState({ messages: [...state.messages, 'Failed to join room'] });
     }
   };
 
   const handleQuit = () => {
-    disconnectSocket();
-    process.exit(0);
+    cleanupAndExit(0);
   };
 
   const handleGuestLogin = async () => {
@@ -174,6 +203,14 @@ function App() {
     );
   }
 
+  if (screen === 'connecting-room') {
+    return (
+      <Box padding={1}>
+        <Text color="gray">Joining room...</Text>
+      </Box>
+    );
+  }
+
   if (screen === 'summary') {
     return (
       <SummaryScreen
@@ -214,6 +251,16 @@ function App() {
 
 const isInteractive = process.stdin.isTTY ?? false;
 
-render(<App />, {
+inkApp = render(<App />, {
   ...(isInteractive ? {} : { stdin: undefined }),
+});
+
+process.once('SIGINT', () => cleanupAndExit(0));
+process.once('SIGTERM', () => cleanupAndExit(0));
+process.once('exit', () => {
+  if (!cleanedUp) {
+    cleanedUp = true;
+    disconnectSocket();
+    inkApp?.unmount();
+  }
 });

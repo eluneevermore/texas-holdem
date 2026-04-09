@@ -5,12 +5,22 @@ import { getState, setState } from '../store/appStore.js';
 
 let socket: Socket | null = null;
 
-export function connectSocket(serverUrl: string, token: string, roomId?: string): Socket {
+interface ConnectSocketOptions {
+  roomId?: string;
+  onJoined?: () => void;
+  onConnectError?: (message: string) => void;
+}
+
+export function connectSocket(serverUrl: string, token: string, options: ConnectSocketOptions = {}): Socket {
   socket = io(serverUrl, {
     auth: { token },
-    query: roomId ? { roomId } : {},
+    query: options.roomId ? { roomId: options.roomId } : {},
     reconnection: true,
     reconnectionAttempts: 10,
+  });
+
+  socket.on('connect', () => {
+    setState({ messages: [...getState().messages.slice(-20), `socket connected ${socket?.id ?? ''}`] });
   });
 
   // Room events
@@ -23,6 +33,13 @@ export function connectSocket(serverUrl: string, token: string, roomId?: string)
       config: room.config,
       players: room.players,
     });
+    setState({ messages: [...getState().messages.slice(-20), `joined room ${room.roomCode}`] });
+    options.onJoined?.();
+  });
+
+  socket.on('connect_error', (error) => {
+    setState({ messages: [...getState().messages.slice(-20), `socket error: ${error.message}`] });
+    options.onConnectError?.(error.message);
   });
 
   socket.on(ROOM_EVENTS.PLAYER_JOINED, ({ player }) => {
